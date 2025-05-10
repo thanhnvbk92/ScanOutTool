@@ -1,0 +1,30 @@
+﻿<UserControl x:Class="ScanOutTool.Views.Controls.SerialPortSettingView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:ScanOutTool.Views.Controls"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             mc:Ignorable="d" 
+             d:DesignHeight="450" d:DesignWidth="800">
+    <UserControl.Resources>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource MaterialDesignFloatingHintComboBox}">
+            <Setter Property="Foreground" Value="{DynamicResource MaterialDesignBody}"/>
+            <Setter Property="Background" Value="{DynamicResource MaterialDesignBackground}"/>
+        </Style>
+    </UserControl.Resources>
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <ComboBox Width="200" ItemsSource="{Binding AvailablePorts}" Text="{Binding SelectedPort}" materialDesign:HintAssist.Hint="Port" Margin="0,2,0,0" IsEditable="True"/>
+        <ComboBox Width="200" ItemsSource="{Binding BaudRates}" SelectedItem="{Binding SelectedBaudRate}" Grid.Row="1" materialDesign:HintAssist.Hint="Baudrate" Margin="0,2,0,0"/>
+        <ComboBox Width="200" ItemsSource="{Binding Parities}" SelectedItem="{Binding SelectedParity}" Grid.Row="2" materialDesign:HintAssist.Hint="Parity" Margin="0,2,0,0"/>
+        <ComboBox Width="200" ItemsSource="{Binding StopBitOptions}" SelectedItem="{Binding SelectedStopBits}" Grid.Row="3" materialDesign:HintAssist.Hint="Stopbits" Margin="0,2,0,0"/>
+        <ComboBox Width="200" ItemsSource="{Binding DataBitsOptions}" SelectedItem="{Binding SelectedDataBits}" Grid.Row="4" materialDesign:HintAssist.Hint="Databits" Margin="0,2,0,0"/>  
+    </Grid>
+</UserControl>
