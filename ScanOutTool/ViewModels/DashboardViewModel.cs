@@ -311,7 +311,7 @@ namespace ScanOutTool.ViewModels
             finally
             {
                 IsSessionStarting = false;
-            }
+            }            
         }
 
         private async Task SendDataExecuteAsync()
