@@ -46,7 +46,7 @@ namespace ScanOutTool.Services
         {
             if (isAttached)
             {
-                return automation.ReadTextByAutomationId(ebrTextBoxName);
+                return automation.ReadTextByAutomationId(ebrTextBoxName).TrimEnd('.');
             }
             else
             {

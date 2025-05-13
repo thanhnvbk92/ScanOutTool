@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Diagnostics;
 using System.IO;
 
 namespace ScanOutTool.Services
@@ -14,7 +15,9 @@ namespace ScanOutTool.Services
 
         public ConfigService(IConfiguration configuration)
         {
-            _configPath = configuration["ConfigFilePath"] ?? "Resources/appsettings.json";
+            string exePath = Process.GetCurrentProcess().MainModule.FileName;
+            string exeDirectory = Path.GetDirectoryName(exePath);
+            _configPath = configuration["ConfigFilePath"] ?? Path.Combine(exeDirectory, "Resources/appsettings.json");
             LoadConfig();
         }
 

@@ -52,6 +52,9 @@ namespace ScanOutTool.Views
             else
             {
                 this.Hide();
+                //this.WindowState = WindowState.Minimized;
+                //this.ShowInTaskbar = false;
+
                 _trayIcon.Visibility = Visibility.Visible; // Cực kỳ quan trọng
             }
         }

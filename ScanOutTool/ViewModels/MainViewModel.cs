@@ -2,6 +2,7 @@
 using CommunityToolkit.Mvvm.Input;
 using MaterialDesignColors;
 using MaterialDesignThemes.Wpf;
+using ScanOutTool.Helpers;
 using ScanOutTool.Services;
 using System.Linq;
 
@@ -40,6 +41,7 @@ namespace ScanOutTool.ViewModels
             IsDarkTheme = theme.GetBaseTheme() == BaseTheme.Dark;
 
             Title = $"Scan Out Tool v{getVersion()}";
+            KillProcess.KillChromeDriver();
         }
 
 
@@ -99,5 +101,6 @@ namespace ScanOutTool.ViewModels
 
             return assembly.GetName().Version.ToString();
         }
+
     }
 }

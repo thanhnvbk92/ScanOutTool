@@ -18,7 +18,7 @@
 
             <tb:TaskbarIcon x:Key="TrayIcon"
                 IconSource="pack://application:,,,/Assets/AppIcon.ico"
-                ToolTipText="Modern WPF App">
+                ToolTipText="Modern WPF App" TrayMouseDoubleClick="TrayIcon_TrayMouseDoubleClick">
                 <tb:TaskbarIcon.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Open" Click="Menu_Show_Click"/>
