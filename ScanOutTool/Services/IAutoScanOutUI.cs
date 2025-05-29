@@ -13,5 +13,9 @@ namespace ScanOutTool.Services
         string ReadWO();
         string ReadResult();
         string ReadMessage();
+
+        IntPtr GetMainHandle();
+
+        (double X, double Y, double Width, double Height) GetResultElementBounds();
     }
 }

@@ -26,5 +26,15 @@ namespace ScanOutTool.Views
             InitializeComponent();
             DataContext = vm;
         }
+
+        private void LogTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            LogTextBox.ScrollToEnd();
+        }
+
+        //private void LogTextBlock_TargetUpdated(object sender, DataTransferEventArgs e)
+        //{
+        //    LogScrollViewer.ScrollToEnd();
+        //}
     }
 }

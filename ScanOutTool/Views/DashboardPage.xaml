@@ -13,13 +13,15 @@
             <TextBox Text="{Binding PID}" materialDesign:HintAssist.Hint="PID" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" IsReadOnly="True" Width="100" Margin="5,0,0,0"/>
             <TextBox Text="{Binding PartNo}" materialDesign:HintAssist.Hint="Part No" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" IsReadOnly="True" Width="100"  Margin="5,0,0,0"/>
             <TextBox Text="{Binding WorkOrder}" materialDesign:HintAssist.Hint="Work Order" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" IsReadOnly="True" Width="100"  Margin="5,0,0,0"/>
-            <TextBox Text="{Binding Result}" materialDesign:HintAssist.Hint="Result" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" IsReadOnly="True" Width="100"  Margin="5,0,0,0"/>
-            <TextBox Text="{Binding PCBLocation}" materialDesign:HintAssist.Hint="PCB Location" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" IsReadOnly="True" Width="100"  Margin="5,0,0,0"/>
-            <TextBox Text="{Binding SelectedEBR}" materialDesign:HintAssist.Hint="Selecetd EBR" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" Width="100"  Margin="5,0,0,0"/>
+            <TextBox Text="{Binding Result}" materialDesign:HintAssist.Hint="Result" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" IsReadOnly="True" Width="40"  Margin="5,0,0,0"/>
+            <TextBox Text="{Binding PCBLocation}" materialDesign:HintAssist.Hint="PCB Location" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" IsReadOnly="True" Width="70"  Margin="5,0,0,0"/>
+            <TextBox Text="{Binding SelectedEBR}" materialDesign:HintAssist.Hint="EBR được chọn" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" Width="100"  Margin="5,0,0,0"/>
+            <TextBox Text="{Binding MagazineQty}" materialDesign:HintAssist.Hint="Số lượng PCB" Foreground="{DynamicResource MaterialDesignBody}" Style="{StaticResource MaterialDesignFloatingHintTextBox}" Width="100"  Margin="5,0,0,0"/>
             <ComboBox SelectedItem="{Binding SelectedRunMode}" ItemsSource="{Binding RunModes}"  Width="120" VerticalAlignment="Bottom" Foreground="{DynamicResource MaterialDesignBody}" Margin="5,0,0,0"/>
         </StackPanel>
-        <TextBox Grid.Row="1" Text="{Binding Logs}" Foreground="{DynamicResource MaterialDesignBody}" VerticalContentAlignment="Top" />
-        <TextBlock Grid.Row="1" Text="{Binding InformationMessage}" Visibility="{Binding IsMessageOn, Converter={StaticResource BoolToVisibilityConverter}}" Background="Gray" Foreground="Yellow" FontSize="18" FontWeight="Bold" VerticalAlignment="Top"/>
+        <TextBox x:Name="LogTextBox" Grid.Row="1" Text="{Binding Logs}" TextWrapping="NoWrap" Foreground="{DynamicResource MaterialDesignBody}"  IsReadOnly="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Visible"  TextChanged="LogTextBox_TextChanged" VerticalContentAlignment="Top" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+            
+        <TextBlock Grid.Row="1" Text="{Binding InformationMessage}" Visibility="{Binding IsMessageOn, Converter={StaticResource BoolToVisibilityConverter}}" Background="Gray" Foreground="LightGreen" FontSize="18" FontWeight="Bold" VerticalAlignment="Top"/>
         <StackPanel Orientation="Horizontal" Grid.Row="2" FlowDirection="RightToLeft">
             <Button Content="{Binding StartBtnText}" Command="{Binding StartCommand}" />
         </StackPanel>

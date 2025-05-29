@@ -1,18 +1,23 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DataExcuter;
+using ScanOutLogLib.Interfaces;
+using ScanOutLogLib.Services;
 using ScanOutTool.Models;
 using ScanOutTool.Services;
+using ScanOutTool.Views;
 using SerialProxyLib;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.IO;
 using System.IO.Ports;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace ScanOutTool.ViewModels
 {
@@ -28,10 +33,15 @@ namespace ScanOutTool.ViewModels
         private readonly IAppState _appState;
         private readonly ILoggingService _loggingService;
         private readonly IConfigService _configService;
+        private readonly IPLCServiceFactory _plcFactory;
+        private readonly IScanResultService _resultService;
+        private readonly IScanResultDispatcher _dispatcher;
+        private readonly IShowRescanResultService _showRescanResultService;
+
+        private IPLCService? _plcService;
 
         private IAutoScanOutUI _autoScanOutUI;
         private SerialProxyManager _serialProxyManager;
-        private IPLCPackingService _plcService;
         private bool _isPLCConnected = false;
 
         private bool IsScanOutOnly => SelectedRunMode == RunMode.ScanOutOnly;
@@ -69,6 +79,7 @@ namespace ScanOutTool.ViewModels
         [ObservableProperty] private string selectedEBR;
         [ObservableProperty] private string informationMessage;
         [ObservableProperty] private bool isMessageOn =false;
+        [ObservableProperty] private int magazineQty;
 
 
         [RelayCommand]
@@ -79,6 +90,22 @@ namespace ScanOutTool.ViewModels
                 IsStarted = true;
                 StartBtnText = "STOP";
                 _appState.IsRunning = true;
+                string logRoot = _configService.Config.ShopFloorLogPath;
+                if (!Directory.Exists(logRoot))
+                {
+                    _loggingService.LogError($"Log path does not exist: {logRoot}");
+                    return;
+                }
+                _dispatcher.Start(logRoot);
+                _dispatcher.OnLog += (log) =>
+                {
+                    _loggingService.LogInformation(log);
+                };
+                _resultService.OnLog += (log) =>
+                {
+                    _loggingService.LogInformation(log);
+                };
+                _resultService.Start(logRoot);
                 _ = Task.Run(StartSerialProxyAsync);
                 await Task.Run(async () =>
                 {
@@ -102,7 +129,7 @@ namespace ScanOutTool.ViewModels
                 IsStarted = false;
                 StartBtnText = "START";
                 _appState.IsRunning = false;
-
+                _dispatcher.Stop();
                 StopSerialProxy();
                 _plcService?.Dispose();
                 _isPLCConnected = false;
@@ -110,11 +137,15 @@ namespace ScanOutTool.ViewModels
             }
         }
 
-        public DashboardViewModel(ILoggingService loggingService, IConfigService configService, IAppState appState)
+        public DashboardViewModel(ILoggingService loggingService, IConfigService configService, IAppState appState, IPLCServiceFactory plcFactory, IScanResultService scanResultService, IScanResultDispatcher dispatcher, IShowRescanResultService showRescanResultService)
         {
             _loggingService = loggingService;
             _configService = configService;
             _appState = appState;
+            _plcFactory = plcFactory;
+            _resultService = scanResultService;
+            _dispatcher = dispatcher;
+            _showRescanResultService = showRescanResultService;
 
             InitializeServices();
         }
@@ -122,10 +153,6 @@ namespace ScanOutTool.ViewModels
         private void InitializeServices()
         {
             IsStarted = false;
-            _plcService = new PLCPackingService("192.168.100.100", 2001, true)
-            {
-                LoggingService = _loggingService
-            };
 
             var cfg = _configService.Config;
             _dataExecuter = new DataExecuter(new DataExecuterConfig
@@ -139,6 +166,36 @@ namespace ScanOutTool.ViewModels
 
             RunModes = Enum.GetValues(typeof(RunMode)).Cast<RunMode>().ToList();
             SelectedRunMode = RunMode.ScanOut_Rescan;
+        }
+
+        public void InitializePLC()
+        {
+            if (_configService.Config.IsRobotMode && _configService.Config.PLCIP != null && _configService.Config.PLCPort != 0)
+            {
+                _plcService?.Dispose(); // nếu đã có instance cũ thì bỏ
+                string ip = _configService.Config.PLCIP;
+                int port = _configService.Config.PLCPort;
+                bool isAsciiMode = true;
+
+                _plcService = _plcFactory.Create(ip, port, isAsciiMode);
+
+                _plcService.OnConnectionChanged += (conn) =>
+                {
+                    _isPLCConnected = conn;
+                    if (conn)
+                    {
+                        _loggingService.LogInformation("PLC connected.");
+                    }
+                    else
+                    {
+                        _loggingService.LogError("PLC disconnected.");
+                    }
+                };
+            }
+            else
+            {
+                _loggingService.LogError("PLC service is not configured or IP/Port is invalid.");
+            }
         }
 
 
@@ -172,19 +229,40 @@ namespace ScanOutTool.ViewModels
                 Logger = new SerilogProxyLogger(_loggingService),
                 WaitForGuiProcessAsync = async (sentData) =>
                 {
-                    if(sentData=="CLEAR" || sentData == "TRACE")
+                    if(sentData.Contains("CLEAR") || sentData.Contains("TRACE"))
                     {
                         return true;
                     }
                     // Giả lập chờ GUI hiển thị (thay bằng gọi UIAutomation thực tế)
-                    bool result = await ReadScanOutResult(sentData);
+                    var readScanOutTask = ReadScanOutResult(sentData);
+                    //var readLogTask = ReadScanOutResultByLog(sentData);
+                    //await Task.WhenAll(readScanOutTask, readLogTask);
+                    bool result = await readScanOutTask;
+
+                    //Stopwatch sw = new Stopwatch();
+                    //sw.Start();
+                    //var logdata  = await _resultService.RequestResultAsync(sentData.Trim(),3000);
+                    //_loggingService.LogInformation($"GUI-LOG:{PID}-{logdata.PID},{PartNo}-{logdata.Model},{WorkOrder}-{logdata.WorkOrder},{Result}-{logdata.Result}: {sw.ElapsedMilliseconds}ms" );
+                    //sw.Stop();
                     if (result && !isInChooseEBRMode)
                     {
-                        await SendDataExecuteAsync();
+                        bool executeResult = await SendDataExecuteAsync();
+                        if (_configService.Config.IsRobotMode && executeResult)
+                        {
+                            await ReadPCBInfoFromPCB();
+                        }
                     }                       
                     else if(result && isInChooseEBRMode)
                     {
-                        InformationMessage = $"Bạn có muốn chọn {PartNo} để Rescan không?\r\n Nếu có scan TRACE";
+                        if(_configService.Config.IsWOMode)
+                        {
+                            InformationMessage = $"Bạn có muốn chọn {WorkOrder} để Rescan không?\r\n Nếu có scan TRACE";
+                        }
+                        else
+                        {
+                            InformationMessage = $"Bạn có muốn chọn {PartNo} để Rescan không?\r\n Nếu có scan TRACE";
+                        }
+
                         IsMessageOn = true;
                         IsConfirmEBRStep = true;
                     }   
@@ -215,16 +293,25 @@ namespace ScanOutTool.ViewModels
                         InformationMessage = "";
                         IsMessageOn = false;
                     }
+                    _loggingService.LogInformation($"[Event] {e.Data} - Is in Choose Mode: {IsInChooseEBRMode}");
                     e.Cancel=true;
                 }
                 else if (e.Data.ToUpper().Contains("TRACE") && IsConfirmEBRStep)
                 {
-                    SelectedEBR = PartNo;
+                    if(_configService.Config.IsWOMode)
+                    {
+                        SelectedEBR = WorkOrder;
+                    }
+                    else
+                    {
+                        SelectedEBR = PartNo;
+                    }                    
                     InformationMessage = $"";
                     IsMessageOn = false;
                     IsConfirmEBRStep = false;
                     IsInChooseEBRMode=false;
                     await SendDataExecuteAsync();
+                    _loggingService.LogInformation($"[Event] {e.Data} - Is in Choose Mode: {IsInChooseEBRMode}");
                     e.Cancel = true; // Ngăn không cho dữ liệu đi tiếp
                 }
                 else if (e.Data.ToUpper().Contains("CLEAR") && IsInChooseEBRMode)
@@ -233,11 +320,17 @@ namespace ScanOutTool.ViewModels
                     IsMessageOn = false;
                     IsConfirmEBRStep = false;
                     IsInChooseEBRMode = false;
+                    _loggingService.LogInformation($"[Event] {e.Data} - Is in Choose Mode: {IsInChooseEBRMode}");
                     e.Cancel = true; // Ngăn không cho dữ liệu đi tiếp
                 }
-
+                else if (!e.Data.Contains("CLEAR") && !e.Data.Contains("TRACE") && e.Data.Trim().Length != 11 && e.Data.Trim().Length != 22)
+                {
+                    _loggingService.LogInformation($"[Event] {e.Data.Trim()} - Data length: {e.Data.Trim().Length}");
+                    e.Cancel = true;
+                }
                 if (SelectedRunMode == RunMode.RescanOnly)
-                {                    
+                {           
+                    _loggingService.LogInformation($"[Event] {e.Data} - Rescan only mode");
                     e.Cancel = true;
                     await _dataExecuter.SendDatatoRescanAsync(e.Data);
                 }
@@ -260,6 +353,13 @@ namespace ScanOutTool.ViewModels
             try
             {
                 _autoScanOutUI = new AutoScanOutUI();
+                //var rect = _autoScanOutUI.GetResultElementBounds();
+                //Application.Current.Dispatcher.Invoke(() =>
+                //{
+                //    _showRescanResultService.ShowRescanResult(rect.X, rect.Y, rect.Width, rect.Height);
+                //});
+
+                //_showRescanResultService.SetRescanResult("NG", "10/20", "OK added");
             }
             catch (Exception ex)
             {
@@ -271,27 +371,15 @@ namespace ScanOutTool.ViewModels
         private async Task StartPLCAsync()
         {
             if (!_configService.Config.IsRobotMode) return;
-            try
-            {
-                if (_plcService != null)
-                {
-                    _plcService.TryConnect();
-                    _isPLCConnected = _plcService.IsConnected;
-                    if (_isPLCConnected)
-                    {
-                        _loggingService.LogInformation("PLC connected successfully.");
-                        await ReadPCBInfoFromPCB();
-                    }
-                    else
-                    {
-                        _loggingService.LogError("Failed to connect to PLC.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _loggingService.LogError($"Error connecting to PLC: {ex.Message}");
-            }
+            InitializePLC();
+            _loggingService.LogInformation($"Starting PLC: IP={_configService.Config.PLCIP}, Port={_configService.Config.PLCPort}");
+            _loggingService.LogInformation($"Total Tray: {_plcService.GetTotalTray()}");
+            _loggingService.LogInformation($"Current Tray: {_plcService.GetCurrentTray()}");
+            _loggingService.LogInformation($"Total Slot: {_plcService.GetTotalSlot()}");
+            _loggingService.LogInformation($"Current Slot: {_plcService.GetCurrentSlot()}");
+            _loggingService.LogInformation($"Current Model Number: {_plcService.GetCurrentModelNumber()}");
+            _loggingService.LogInformation($"Current PID: {_plcService.ReadPID()}");
+
         }
 
 
@@ -314,9 +402,10 @@ namespace ScanOutTool.ViewModels
             }            
         }
 
-        private async Task SendDataExecuteAsync()
+        private async Task<bool> SendDataExecuteAsync()
         {
-            if (IsInChooseEBRMode) return;
+            bool finalResult = false;
+            if (IsInChooseEBRMode) return false;
             
             try
             {
@@ -326,7 +415,7 @@ namespace ScanOutTool.ViewModels
                 ProcessResult result = new ProcessResult();
                 if(IsScanOutOnly)
                 {
-                    result =  await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNo, pID);
+                    result =  await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNo, pID);                    
                 }
                 else if (IsRescanOnly)
                 {
@@ -334,18 +423,14 @@ namespace ScanOutTool.ViewModels
                 }
                 else
                 {
-                    if(!string.IsNullOrEmpty(SelectedEBR) && (partNo != SelectedEBR))
+                    if(_configService.Config.IsWOMode)
                     {
-                        int PackQty = await _dataExecuter.GetPackQty();
-                        _loggingService.LogInformation($"PackQty: {PackQty}");
-                        if(PackQty==0)
-                        {
-                            _loggingService.LogInformation($"PartNo miss match: {partNo} != {SelectedEBR}");
-                            result = await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNo, pID);
-                            return;
-                        }    
-                    }                      
-                    result = await _dataExecuter.ProcessDataAsync(workOrder, partNo, pID);
+                        result = await SendInWOMode();
+                    }
+                    else
+                    {
+                        result = await SendInEBRMode();
+                    }                    
                 }
 
 
@@ -362,6 +447,11 @@ namespace ScanOutTool.ViewModels
                         //MessageBox.Show(result.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         _loggingService.LogError($"Error: {result.Message}");
                     }
+
+                }
+                else
+                {
+                    finalResult = true;
                 }
 
                 // 데이터 클리어 (설정에 따라)
@@ -375,12 +465,74 @@ namespace ScanOutTool.ViewModels
                 ResultMessage = $"Error: {ex.Message}";
                 //MessageBox.Show("NG", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 _loggingService.LogError($"Error sending data: {ex.Message}");
+
             }
             finally
             {
                 IsDataSending = false;
             }
+            return finalResult;
         }
+
+        private async Task<ProcessResult> SendInWOMode()
+        {            
+            ProcessResult result = new ProcessResult();
+            if (string.IsNullOrEmpty(workOrder)) return result;
+            if (string.IsNullOrEmpty(SelectedEBR))
+            {
+                MessageBox.Show("Vui lòng chọn Part No trước khi scan", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                result = await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNo, pID);
+            }
+            else
+            {
+                if (workOrder != SelectedEBR)
+                {
+                    _loggingService.LogInformation($"PartNo miss match: {workOrder} != {SelectedEBR}");
+                    result = await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNo, pID);
+                }
+                else
+                {
+                    result = await _dataExecuter.ProcessDataAsync(workOrder, partNo, pID);
+                }
+            }
+            return result;
+        }
+
+        private async Task<ProcessResult> SendInEBRMode()
+        {
+            ProcessResult result = new ProcessResult();
+            if(string.IsNullOrEmpty(partNo)) return result;
+            if (partNo != SelectedEBR && !string.IsNullOrEmpty(SelectedEBR))
+            {
+                _loggingService.LogInformation($"PartNo miss match: {partNo} != {SelectedEBR}");
+                int PackQty = await _dataExecuter.GetPackQty();
+                if (PackQty == 0)
+                {                    
+                    result = await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNo, pID);
+                }
+                else
+                {
+                    result = await _dataExecuter.ProcessDataAsync(workOrder, partNo, pID);
+                }
+            }
+            else
+            {
+                result = await _dataExecuter.ProcessDataAsync(workOrder, partNo, pID);
+            }
+
+            int currentPCBQty = await _dataExecuter.GetPackQty();
+            int totalPCBQty = await _dataExecuter.GetMagazineQty();
+
+            if(MagazineQty !=0 && MagazineQty != totalPCBQty && currentPCBQty == MagazineQty)
+            {
+                if(MagazineQty>totalPCBQty && currentPCBQty >= (totalPCBQty-1)) 
+                    MessageBox.Show("Số lượng PCB trên hệ thống HMES đang nhỏ hơn số lượng cài đặt", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                await _dataExecuter.PrintManual();
+            }
+
+            return result;
+        }
+
 
 
         public async Task<bool> ReadScanOutResult(string pid)
@@ -398,18 +550,22 @@ namespace ScanOutTool.ViewModels
             {
                 if (_autoScanOutUI.ReadPID().Contains("PLZ Read below Message and Clear") && _autoScanOutUI.ReadMessage().Contains(pid))
                 {
-                    break;
+                    _loggingService.LogInformation($"ScanOut NG:{pid},{PartNo},{WorkOrder},{Result},{ResultMessage}:{sw.ElapsedMilliseconds}ms");
+                    sw.Stop();
+                    sw.Reset();
+                    return false;
                 }
                 if (sw.ElapsedMilliseconds > 5000)
                 {
-                    _loggingService.LogError($"Timeout to get scanout PID {pid} result: {_autoScanOutUI.ReadPID()} - {_autoScanOutUI.ReadMessage()}");
+                    _loggingService.LogError($"Timeout to get scanout PID {pid} result: {_autoScanOutUI.ReadPID()} - {_autoScanOutUI.ReadMessage()}:{sw.ElapsedMilliseconds}ms");
+                    sw.Stop();
+                    sw.Reset();
                     return false;
                 }
-                Task.Delay(200).Wait();
+                await Task.Delay(50); // Delay to avoid busy waiting
             }
-            sw.Stop();
-            sw.Reset();
-
+            
+            
             try
             {
                 PID = _autoScanOutUI.ReadPID();
@@ -418,31 +574,55 @@ namespace ScanOutTool.ViewModels
                 Result = _autoScanOutUI.ReadResult();
                 ResultMessage = _autoScanOutUI.ReadMessage(); 
 
-                if (PID.Contains("PLZ Read below Message and Clear"))
-                {
-                    _loggingService.LogInformation($"Data from ScanOut GUI:{pid},{PartNo},{WorkOrder},{Result},{ResultMessage}");
-                    return false;
-                }     
-                else
-                    _loggingService.LogInformation($"Data from ScanOut GUI:{PID},{PartNo},{WorkOrder},{Result}");
+                _loggingService.LogInformation($"Data from ScanOut GUI:{PID},{PartNo},{WorkOrder},{Result}:{sw.ElapsedMilliseconds}ms");
 
                 if (Result == "OK")
-                {
-                    _loggingService.LogInformation($"Scan out OK: PID: {PID}, WorkOrder: {WorkOrder}, PartNo: {PartNo}, Result: {Result}");
+                {                    
+                    //_loggingService.LogInformation($"Scan out OK: PID: {PID}, WorkOrder: {WorkOrder}, PartNo: {PartNo}, Result: {Result}:{sw.ElapsedMilliseconds}ms");                    
+                    sw.Stop();
+                    sw.Reset();
                     return true;
                 }
                 else
                 {
-                    _loggingService.LogError($"Scan out NG: PID: {PID}, WorkOrder: {WorkOrder}, PartNo: {PartNo}, Result: {Result}, {ResultMessage}");
+                    //_loggingService.LogError($"Scan out NG: PID: {PID}, WorkOrder: {WorkOrder}, PartNo: {PartNo}, Result: {Result}, {ResultMessage}:{sw.ElapsedMilliseconds}ms");
+                    sw.Stop();
+                    sw.Reset();
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                _loggingService.LogError($"Failed to read scan out result: {ex.Message}");
+                //_loggingService.LogError($"Failed to read scan out result: {ex.Message}:{sw.ElapsedMilliseconds}ms");
+                sw.Stop();
+                sw.Reset();
                 return false;
             }
+
         }
+
+        public async Task<bool> ReadScanOutResultByLog(string pid)
+        {
+            if(_resultService == null)
+            {
+                _loggingService.LogError("Result service is not initialized.");
+                return false;
+            }
+
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
+            var result = await _resultService.RequestResultAsync(pid.Trim(),3000);
+
+            //PID = result.PID;
+            //WorkOrder = result.WorkOrder;
+            //PartNo = result.Model;
+            //Result = result.Result;
+            _loggingService.LogInformation($"Data from ScanOut LOG:{result.PID},{result.Model.TrimEnd('.')},{result.WorkOrder},{result.Result}:{sw.ElapsedMilliseconds}ms");
+            sw.Stop();
+            sw.Reset();
+            return result.Result == "OK" ? true : false;
+        }
+
 
         private async Task ReadScanOutGUI()
         {
@@ -455,7 +635,6 @@ namespace ScanOutTool.ViewModels
             ResultMessage = _autoScanOutUI.ReadMessage();
 
         }
-
         private void ClearInputFields()
         {
             workOrder = "";
@@ -463,49 +642,32 @@ namespace ScanOutTool.ViewModels
             pID = "";
         }
 
-
         private async Task ReadPCBInfoFromPCB()
-        {            
-            while (_isStarted)
+        {
+            if (_plcService == null)
             {
-                if (_plcService.IsConnected)
-                {
-                    _loggingService.LogInformation("Reading PCB info from PLC...");
-                    var TrayNo = _plcService.GetTray();
-                    _loggingService.LogInformation($"TrayNo: {TrayNo}");
-                    var TrayQty = _plcService.GetTotalTray();
-                    //_loggingService.LogInformation($"TrayQty: {TrayQty}");
-                    //var slot1 = _plcService.ReadBit("M341");
-                    //_loggingService.LogInformation($"Slot1: {slot1}");
-                    //var slot2 = _plcService.ReadBit("M342");
-                    //_loggingService.LogInformation($"Slot2: {slot2}");
-                    //var slot3 = _plcService.ReadBit("M343");
-                    //_loggingService.LogInformation($"Slot3: {slot3}");
-                    //var slot4 = _plcService.ReadBit("M344");
-                    //_loggingService.LogInformation($"Slot4: {slot4}");
-                    //var slot5 = _plcService.ReadBit("M345");
-                    //_loggingService.LogInformation($"Slot5: {slot5}");
-                    //var slot6 = _plcService.ReadBit("M346");
-                    //_loggingService.LogInformation($"Slot6: {slot6}");
-
-                    //_loggingService.LogInformation($"TrayNo: {TrayNo}, TrayQty: {TrayQty}, Slot1: {slot1}, Slot2: {slot2}, Slot3: {slot3}, Slot4: {slot4}, Slot5: {slot5}, Slot6: {slot6}");
-                    string text = $"{TrayNo} - {TrayQty} ";
-                    //MessageBox.Show(text);
-                    if (PCBLocation != text)
-                    {
-                        Application.Current.Dispatcher.Invoke(() =>
-                         {
-                             PCBLocation = text;
-                         });                        
-                    }
-                        
-                }
-                else
-                {
-                    _loggingService.LogError("Failed to connect to PLC.");
-                }
-                await Task.Delay(2000); // Delay to avoid tight loop
+                _loggingService.LogError("PLC service is not initialized.");
+                return;
             }
+            if (!_isPLCConnected)
+            {
+                _loggingService.LogError("PLC is not connected.");
+                return;
+            }
+            await _plcService.SetPassSignalAsync();
+            _loggingService.LogInformation("Reading PCB info from PLC...");
+            int modelNumber = _plcService.GetCurrentModelNumber();
+            int CurrentSlot = _plcService.GetCurrentSlot();
+            int TotalSlot = _plcService.GetTotalSlot();
+            int TraySlot = _plcService.GetTraySlot();
+            int TotalTray = _plcService.GetTotalTray();
+            int CurrentTray = _plcService.GetCurrentTray();
+
+            int currentPCBQty = CurrentSlot + CurrentTray * TraySlot;
+            int totalPCBQty = TraySlot * TotalTray;
+            _loggingService.LogInformation($"DataReading from PLC: Model Number: {modelNumber}, Current Slot: {CurrentSlot}, Total Slot: {TotalSlot}");
+            PCBLocation = $"{currentPCBQty}/{totalPCBQty}";
+            MagazineQty = TotalSlot;
         }
 
         private void OnDataExcuteStatusChanged(object sender, string status)

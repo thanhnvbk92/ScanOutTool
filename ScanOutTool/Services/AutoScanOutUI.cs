@@ -7,7 +7,7 @@ using UIAutoLib.Services;
 
 namespace ScanOutTool.Services
 {
-    public class AutoScanOutUI: IAutoScanOutUI
+    public class AutoScanOutUI : IAutoScanOutUI
     {
         private string processName = "LGE.SFC.MainFrame";
         private string pidTextBoxName = "txtSerialNo";
@@ -21,7 +21,7 @@ namespace ScanOutTool.Services
 
 
         public AutoScanOutUI()
-        {            
+        {
             automation = new AutomationService();
             isAttached = automation.AttachToProcess(processName);
             if (!isAttached)
@@ -33,7 +33,7 @@ namespace ScanOutTool.Services
         public string ReadPID()
         {
             if (isAttached)
-            {                
+            {
                 return automation.ReadTextByAutomationId(pidTextBoxName);
             }
             else
@@ -80,9 +80,33 @@ namespace ScanOutTool.Services
 
         public string ReadMessage()
         {
-            if(isAttached)
+            if (isAttached)
             {
                 return automation.ReadTextByAutomationId(messageTextBoxName);
+            }
+            else
+            {
+                throw new Exception("Failed to attach to the process.");
+            }
+        }
+
+        public (double X, double Y, double Width, double Height) GetResultElementBounds()
+        {
+            if (isAttached)
+            {
+                return automation.GetElementBounds(resultTextBoxName);
+            }
+            else
+            {
+                throw new Exception("Failed to attach to the process.");
+            }
+        }
+
+        public IntPtr GetMainHandle()
+        {
+            if (isAttached)
+            {
+                return automation.GetMainHandle();
             }
             else
             {

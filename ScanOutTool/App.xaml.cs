@@ -10,6 +10,11 @@ using System.Windows;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using ScanOutTool.Services;
+using ScanOutLogLib.Helpers;
+using ScanOutLogLib.Interfaces;
+using ScanOutLogLib.Services;
+using ScanOutTool.Views;
 
 
 namespace ScanOutTool
@@ -86,6 +91,12 @@ namespace ScanOutTool
             ConfigureServices(serviceCollection);
             Services = serviceCollection.BuildServiceProvider();
 
+            AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+            {
+                MessageBox.Show($"Lỗi không xử lý: {sender}\r\n" + args.ExceptionObject);
+            };
+
+            
             // Tạo MainWindow từ DI
             var mainWindow = Services.GetRequiredService<Views.MainWindow>();
             mainWindow.Show();
@@ -117,12 +128,21 @@ namespace ScanOutTool
             services.AddSingleton<Services.IUpdateService, Services.UpdateService>();
             services.AddSingleton<Services.IConfigService, Services.ConfigService>();
             services.AddSingleton<Models.IAppState, Models.AppState>();
+            services.AddSingleton<IPLCServiceFactory, PLCServiceFactory>();
+            services.AddSingleton<IShowRescanResultService, ShowRescanResultService>();
+            services.AddSingleton<IAutoScanOutUI, AutoScanOutUI>();
+
+
+            services.AddSingleton<IScanResultDispatcher, ScanResultDispatcher>();
+            services.AddSingleton<IScanResultAwaiter, ScanResultAwaiter>();
+            services.AddSingleton<IScanResultService, ScanResultService>();
 
             // Views
             services.AddTransient<Views.MainWindow>();
             services.AddTransient<Views.DashboardPage>();
             services.AddTransient<Views.SettingsPage>();
             services.AddTransient<Views.AboutPage>();
+            services.AddTransient<Views.RescanInfoWindow>();
         }
 
         private void Application_Startup(object sender, StartupEventArgs e)
