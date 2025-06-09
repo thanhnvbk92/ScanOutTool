@@ -27,7 +27,8 @@ namespace ScanOutTool.ViewModels
         {
             ScanOutOnly,
             RescanOnly,
-            ScanOut_Rescan
+            ScanOut_Rescan,
+            None
         }
 
         private readonly IAppState _appState;
@@ -37,6 +38,7 @@ namespace ScanOutTool.ViewModels
         private readonly IScanResultService _resultService;
         private readonly IScanResultDispatcher _dispatcher;
         private readonly IShowRescanResultService _showRescanResultService;
+        private readonly IBlockRFService _blockRFService;
 
         private IPLCService? _plcService;
 
@@ -47,6 +49,7 @@ namespace ScanOutTool.ViewModels
         private bool IsScanOutOnly => SelectedRunMode == RunMode.ScanOutOnly;
         private bool IsRescanOnly => SelectedRunMode == RunMode.RescanOnly;
         private bool IsScanOutRescan => SelectedRunMode == RunMode.ScanOut_Rescan;
+        private bool IsNone => SelectedRunMode == RunMode.None;
 
         private bool _isStarted;
         public bool IsStarted
@@ -60,6 +63,7 @@ namespace ScanOutTool.ViewModels
         }
 
         private DataExecuter _dataExecuter;
+        private Stopwatch mainSW = new Stopwatch();
 
         [ObservableProperty] private bool isSessionStarting;
         [ObservableProperty] private bool isInChooseEBRMode=false;
@@ -137,7 +141,7 @@ namespace ScanOutTool.ViewModels
             }
         }
 
-        public DashboardViewModel(ILoggingService loggingService, IConfigService configService, IAppState appState, IPLCServiceFactory plcFactory, IScanResultService scanResultService, IScanResultDispatcher dispatcher, IShowRescanResultService showRescanResultService)
+        public DashboardViewModel(ILoggingService loggingService, IConfigService configService, IAppState appState, IPLCServiceFactory plcFactory, IScanResultService scanResultService, IScanResultDispatcher dispatcher,IBlockRFService blockRFService)
         {
             _loggingService = loggingService;
             _configService = configService;
@@ -145,8 +149,16 @@ namespace ScanOutTool.ViewModels
             _plcFactory = plcFactory;
             _resultService = scanResultService;
             _dispatcher = dispatcher;
-            _showRescanResultService = showRescanResultService;
+            _blockRFService = blockRFService;
 
+            _loggingService.OnNewLog += LoggerService_OnNewLog;
+
+            _loggingService.LogInformation("Initializing DashboardViewModel...");
+            //Task.Run(async () =>
+            //{
+            //    var data = await _blockRFService.IsBlock("506HS1V1889");
+            //});
+            
             InitializeServices();
         }
 
@@ -161,7 +173,7 @@ namespace ScanOutTool.ViewModels
                 WebIpAddress = cfg.ServerIP
             });
 
-            _loggingService.OnNewLog += LoggerService_OnNewLog;
+            
             _dataExecuter.StatusChanged += OnDataExcuteStatusChanged;
 
             RunModes = Enum.GetValues(typeof(RunMode)).Cast<RunMode>().ToList();
@@ -229,21 +241,13 @@ namespace ScanOutTool.ViewModels
                 Logger = new SerilogProxyLogger(_loggingService),
                 WaitForGuiProcessAsync = async (sentData) =>
                 {
-                    if(sentData.Contains("CLEAR") || sentData.Contains("TRACE"))
+                    if(sentData.Contains("CLEAR") || sentData.Contains("TRACE") || IsNone )
                     {
                         return true;
                     }
-                    // Giả lập chờ GUI hiển thị (thay bằng gọi UIAutomation thực tế)
                     var readScanOutTask = ReadScanOutResult(sentData);
-                    //var readLogTask = ReadScanOutResultByLog(sentData);
-                    //await Task.WhenAll(readScanOutTask, readLogTask);
                     bool result = await readScanOutTask;
 
-                    //Stopwatch sw = new Stopwatch();
-                    //sw.Start();
-                    //var logdata  = await _resultService.RequestResultAsync(sentData.Trim(),3000);
-                    //_loggingService.LogInformation($"GUI-LOG:{PID}-{logdata.PID},{PartNo}-{logdata.Model},{WorkOrder}-{logdata.WorkOrder},{Result}-{logdata.Result}: {sw.ElapsedMilliseconds}ms" );
-                    //sw.Stop();
                     if (result && !isInChooseEBRMode)
                     {
                         bool executeResult = await SendDataExecuteAsync();
@@ -272,10 +276,25 @@ namespace ScanOutTool.ViewModels
                 }
             };
 
-            _serialProxyManager.OnDataForwarding += async (s, e) =>
+            _serialProxyManager.OnDataForwardingAsync += async (s, e) =>
             {
+                mainSW.Restart();
+                IsMessageOn = false;
                 _loggingService.LogInformation($"[Event] {(e.FromDevice ? "Device" : "App")} gửi: {e.Data}");
               
+                if(_configService.Config.IsBlockRFMode )
+                {             
+                    RFInfo rFInfo = await _blockRFService.IsBlock(e.Data);
+                    if(rFInfo != null)
+                    {
+                        e.Cancel = true; // Ngăn không cho dữ liệu đi tiếp
+                        InformationMessage = $"PID {e.Data} đã bị chặn do NG RF ở jig {rFInfo.CreateUser} band {rFInfo.Band}, vui lòng kiểm tra lại";
+                        IsMessageOn = true;
+                        return;
+                    }    
+                    
+                }
+                _loggingService.LogInformation($"Check block done,{mainSW.ElapsedMilliseconds}ms");
                 // Vaof chees ddooj chonj EBR
                 if(e.Data.ToUpper().Contains("CHOOSE"))
                 {
@@ -328,11 +347,22 @@ namespace ScanOutTool.ViewModels
                     _loggingService.LogInformation($"[Event] {e.Data.Trim()} - Data length: {e.Data.Trim().Length}");
                     e.Cancel = true;
                 }
+                _loggingService.LogInformation($"Check logic done {mainSW.ElapsedMilliseconds}");
                 if (SelectedRunMode == RunMode.RescanOnly)
                 {           
                     _loggingService.LogInformation($"[Event] {e.Data} - Rescan only mode");
                     e.Cancel = true;
                     await _dataExecuter.SendDatatoRescanAsync(e.Data);
+                    int currentPCBQty = await _dataExecuter.GetPackQty();
+                    int totalPCBQty = await _dataExecuter.GetMagazineQty();
+
+                    _loggingService.LogInformation($"Current PCB Qty: {currentPCBQty}, Total PCB Qty: {totalPCBQty}, Magazine Qty: {MagazineQty}, {mainSW.ElapsedMilliseconds}ms");
+                    if (MagazineQty != 0 && MagazineQty != totalPCBQty && currentPCBQty == MagazineQty)
+                    {
+                        if (MagazineQty > totalPCBQty && currentPCBQty >= (totalPCBQty - 1))
+                            MessageBox.Show("Số lượng PCB trên hệ thống HMES đang nhỏ hơn số lượng cài đặt", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        await _dataExecuter.PrintManual();
+                    }
                 }
             };
             //_loggingService.LogInformation($"Starting serial proxy: Device={comDevice.SelectedPort}, App={comApp.SelectedPort}, BaudRate={comDevice.SelectedBaudRate}, Parity={comDevice.SelectedParity}, DataBits={comDevice.SelectedDataBits}, StopBits={comDevice.SelectedStopBits}");
@@ -364,6 +394,7 @@ namespace ScanOutTool.ViewModels
             catch (Exception ex)
             {
                 _loggingService.LogError($"Failed to initialize AutoScanOutUI: {ex.Message}");
+                return;
             }
             await ReadScanOutGUI();
         }
@@ -420,6 +451,16 @@ namespace ScanOutTool.ViewModels
                 else if (IsRescanOnly)
                 {
                     result = await _dataExecuter.SendDatatoRescanAsync(pID);
+                    int currentPCBQty = await _dataExecuter.GetPackQty();
+                    int totalPCBQty = await _dataExecuter.GetMagazineQty();
+
+                    _loggingService.LogInformation($"Current PCB Qty: {currentPCBQty}, Total PCB Qty: {totalPCBQty}, Magazine Qty: {MagazineQty}");
+                    if (MagazineQty != 0 && MagazineQty != totalPCBQty && currentPCBQty == MagazineQty)
+                    {
+                        if (MagazineQty > totalPCBQty && currentPCBQty >= (totalPCBQty - 1))
+                            MessageBox.Show("Số lượng PCB trên hệ thống HMES đang nhỏ hơn số lượng cài đặt", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        await _dataExecuter.PrintManual();
+                    }
                 }
                 else
                 {

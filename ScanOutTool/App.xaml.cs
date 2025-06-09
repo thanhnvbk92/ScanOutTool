@@ -129,8 +129,9 @@ namespace ScanOutTool
             services.AddSingleton<Services.IConfigService, Services.ConfigService>();
             services.AddSingleton<Models.IAppState, Models.AppState>();
             services.AddSingleton<IPLCServiceFactory, PLCServiceFactory>();
-            services.AddSingleton<IShowRescanResultService, ShowRescanResultService>();
-            services.AddSingleton<IAutoScanOutUI, AutoScanOutUI>();
+            services.AddSingleton<IBlockRFService, BlockRFService>();
+            //services.AddSingleton<IShowRescanResultService, ShowRescanResultService>();
+            //services.AddSingleton<IAutoScanOutUI, AutoScanOutUI>();
 
 
             services.AddSingleton<IScanResultDispatcher, ScanResultDispatcher>();

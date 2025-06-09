@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ScanOutTool.Models;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -15,8 +16,16 @@ namespace ScanOutTool.Services
         private string woTextBoxName = "txtWorkOrder";
         private string resultTextBoxName = "txtResult";
         private string messageTextBoxName = "txtMessage";
+        private string progressTextName = "txtProgress";
+
         private AutomationService automation;
         private bool isAttached = false;
+        private string oldProgessbarString = "";
+        private string oldMessage = "";
+        private string oldResult = "";
+        private string oldPID = "";
+
+        private event Action<string> pIDChanged;
 
 
 
@@ -34,7 +43,14 @@ namespace ScanOutTool.Services
         {
             if (isAttached)
             {
-                return automation.ReadTextByAutomationId(pidTextBoxName);
+                string pid = automation.ReadTextByAutomationId(pidTextBoxName);
+                if (pid != oldPID)
+
+                {
+                    oldPID = pid;
+                    pIDChanged?.Invoke(pid);
+                }
+                return pid;
             }
             else
             {
@@ -112,6 +128,52 @@ namespace ScanOutTool.Services
             {
                 throw new Exception("Failed to attach to the process.");
             }
+        }
+
+        private async Task<bool> WaitForGUIChangeAsync(int timeout = 5000)
+        {
+            int elapsed = 0;
+            while (elapsed < timeout)
+            {
+                string currentPID = ReadPID();
+                string currentProgress = automation.ReadTextByAutomationId(progressTextName);
+                string currentMessage = ReadMessage();
+                string currentResult = ReadResult();
+                if (currentPID != oldPID)
+                {
+                    oldPID = currentPID;
+                    return true;
+                }
+                if (currentProgress != oldProgessbarString)
+                {
+                    oldProgessbarString = currentProgress;
+                    return true;
+                }
+                if (currentMessage != oldMessage)
+                {
+                    oldMessage = currentMessage;
+                    return true;
+                }
+                await Task.Delay(100);
+                elapsed += 100;
+            }
+            return false;
+        }
+
+        public async Task<PCB> ReadPCBInfor()
+        {
+            bool isChanged = await WaitForGUIChangeAsync();
+            if (!isChanged)
+            {
+                return null;
+            }
+            PCB pCB = new PCB();
+            pCB.PID = ReadPID();
+            pCB.EBR = ReadEBR();
+            pCB.WO = ReadWO();
+            pCB.Result = ReadResult();
+            pCB.Message = ReadMessage();
+            return pCB;
         }
     }
 }

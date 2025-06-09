@@ -18,6 +18,7 @@ namespace ScanOutTool.ViewModels
         [ObservableProperty] private bool isRobotMode;
 
         [ObservableProperty] private bool isWOMode;
+        [ObservableProperty] private bool isBlockRFMode;
 
         [ObservableProperty] private string serverIP;
 
@@ -38,6 +39,7 @@ namespace ScanOutTool.ViewModels
             _configService.Config.PLCIP = PLCIP;
             _configService.Config.PLCPort = PLCPort;
             _configService.Config.ShopFloorLogPath = ShopFloorLogPath;
+            _configService.Config.IsBlockRFMode = IsBlockRFMode;
             _configService.Save();
         }
 
@@ -70,6 +72,7 @@ namespace ScanOutTool.ViewModels
             ServerIP = _configService.Config.ServerIP;
             PLCIP = _configService.Config.PLCIP;
             PLCPort = _configService.Config.PLCPort;
+            IsBlockRFMode = _configService.Config.IsBlockRFMode;
             ShopFloorLogPath = _configService.Config.ShopFloorLogPath ?? "C:\\Admin\\Documents\\LG CNS\\ezMES\\Logs";
         }
     }

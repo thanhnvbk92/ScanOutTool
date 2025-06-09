@@ -24,7 +24,8 @@
         </Grid.RowDefinitions>
         <TextBox Text="{Binding ServerIP}" HorizontalAlignment="Left" VerticalAlignment="Center" Style="{StaticResource MaterialDesignFloatingHintTextBox}" materialDesign:HintAssist.Hint="Server IP" Foreground="{DynamicResource MaterialDesignBody}" Width="100"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <CheckBox Content="Robot Mode" IsChecked="{Binding IsRobotMode}" HorizontalAlignment="Right" Foreground="{DynamicResource MaterialDesignBody}"/>
+            <CheckBox Content="Robot Mode" IsChecked="{Binding IsRobotMode}" HorizontalAlignment="Right" Foreground="{DynamicResource MaterialDesignBody}" Visibility="Hidden"/>
+            <CheckBox Content="BlockRFMode" IsChecked="{Binding IsBlockRFMode}" HorizontalAlignment="Right" Margin="10,0,0,0" Foreground="{DynamicResource MaterialDesignBody}"/>
             <CheckBox Content="Work Oder Mode" IsChecked="{Binding IsWOMode}" HorizontalAlignment="Right" Foreground="{DynamicResource MaterialDesignBody}"/>
         </StackPanel>
         <StackPanel Grid.Row="1" Orientation="Horizontal" Visibility="{Binding IsRobotMode,Converter={StaticResource BoolToVisibilityConverter}}">
