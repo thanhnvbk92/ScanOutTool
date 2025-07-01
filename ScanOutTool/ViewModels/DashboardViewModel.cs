@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Ports;
 using System.Linq;
+using System.Media;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -288,6 +289,7 @@ namespace ScanOutTool.ViewModels
                     RFInfo rFInfo = await _blockRFService.IsBlock(e.Data);
                     if(rFInfo != null)
                     {
+                        PlayNgSound();
                         e.Cancel = true; // Ngăn không cho dữ liệu đi tiếp
                         InformationMessage = $"PID {e.Data} đã bị chặn do NG RF ở jig {rFInfo.MachineIP} band {rFInfo.Band} sinal{rFInfo.Signpath}, vui lòng kiểm tra lại";
                         IsMessageOn = true;
@@ -299,6 +301,7 @@ namespace ScanOutTool.ViewModels
                 if (isHSMESBlocked)
                 {
                     e.Cancel = true; // Ngăn không cho dữ liệu đi tiếp
+                    PlayNgSound();
                     InformationMessage = $"PID {e.Data} đã bị block do {reason} , vui lòng kiểm tra lại";
                     IsMessageOn = true;
                     return;
@@ -738,6 +741,20 @@ namespace ScanOutTool.ViewModels
             public void Log(string message)
             {
                 _logger.LogInformation(message);
+            }
+        }
+
+        void PlayNgSound()
+        {
+            try
+            {
+                string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "scan_fail.wav");
+                var player = new SoundPlayer(filePath); // đường dẫn tới file âm thanh NG
+                player.Play(); // hoặc PlaySync() nếu muốn đợi âm thanh phát xong
+            }
+            catch (Exception ex)
+            {
+                _loggingService.LogError("Lỗi phát âm thanh: " + ex.Message);
             }
         }
 
