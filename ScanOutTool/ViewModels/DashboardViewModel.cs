@@ -182,6 +182,7 @@ namespace ScanOutTool.ViewModels
 
         public void InitializePLC()
         {
+            
             if (_configService.Config.IsRobotMode && _configService.Config.PLCIP != null && _configService.Config.PLCPort != 0)
             {
                 _plcService?.Dispose(); // nếu đã có instance cũ thì bỏ
@@ -288,12 +289,21 @@ namespace ScanOutTool.ViewModels
                     if(rFInfo != null)
                     {
                         e.Cancel = true; // Ngăn không cho dữ liệu đi tiếp
-                        InformationMessage = $"PID {e.Data} đã bị chặn do NG RF ở jig {rFInfo.CreateUser} band {rFInfo.Band}, vui lòng kiểm tra lại";
+                        InformationMessage = $"PID {e.Data} đã bị chặn do NG RF ở jig {rFInfo.MachineIP} band {rFInfo.Band} sinal{rFInfo.Signpath}, vui lòng kiểm tra lại";
                         IsMessageOn = true;
                         return;
                     }    
                     
                 }
+                var (isHSMESBlocked, reason) = _dataExecuter.IsBlocked(e.Data);
+                if (isHSMESBlocked)
+                {
+                    e.Cancel = true; // Ngăn không cho dữ liệu đi tiếp
+                    InformationMessage = $"PID {e.Data} đã bị block do {reason} , vui lòng kiểm tra lại";
+                    IsMessageOn = true;
+                    return;
+                }
+
                 _loggingService.LogInformation($"Check block done,{mainSW.ElapsedMilliseconds}ms");
                 // Vaof chees ddooj chonj EBR
                 if(e.Data.ToUpper().Contains("CHOOSE"))

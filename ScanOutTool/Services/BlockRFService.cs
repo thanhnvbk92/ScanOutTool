@@ -71,7 +71,5 @@ namespace ScanOutTool.Services
                 return string.Empty;
             }
         }
-
-
     }
 }
