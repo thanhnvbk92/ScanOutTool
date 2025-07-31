@@ -21,7 +21,7 @@
         </StackPanel>
         <TextBox x:Name="LogTextBox" Grid.Row="1" Text="{Binding Logs}" TextWrapping="NoWrap" Foreground="{DynamicResource MaterialDesignBody}"  IsReadOnly="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Visible"  TextChanged="LogTextBox_TextChanged" VerticalContentAlignment="Top" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
             
-        <TextBlock Grid.Row="1" Text="{Binding InformationMessage}" Visibility="{Binding IsMessageOn, Converter={StaticResource BoolToVisibilityConverter}}" Background="Gray" Foreground="Yellow" FontSize="18" FontWeight="Bold" VerticalAlignment="Top" TextWrapping="Wrap"/>
+        <TextBlock Grid.Row="1" Text="{Binding InformationMessage}" Visibility="{Binding IsMessageOn, Converter={StaticResource BoolToVisibilityConverter}}" Background="Gray" Foreground="Yellow" FontSize="26" FontWeight="Bold" VerticalAlignment="Top" TextWrapping="Wrap"/>
         <StackPanel Orientation="Horizontal" Grid.Row="2" FlowDirection="RightToLeft">
             <Button Content="{Binding StartBtnText}" Command="{Binding StartCommand}" />
         </StackPanel>

@@ -95,22 +95,22 @@ namespace ScanOutTool.ViewModels
                 IsStarted = true;
                 StartBtnText = "STOP";
                 _appState.IsRunning = true;
-                string logRoot = _configService.Config.ShopFloorLogPath;
-                if (!Directory.Exists(logRoot))
-                {
-                    _loggingService.LogError($"Log path does not exist: {logRoot}");
-                    return;
-                }
-                _dispatcher.Start(logRoot);
-                _dispatcher.OnLog += (log) =>
-                {
-                    _loggingService.LogInformation(log);
-                };
-                _resultService.OnLog += (log) =>
-                {
-                    _loggingService.LogInformation(log);
-                };
-                _resultService.Start(logRoot);
+                //string logRoot = _configService.Config.ShopFloorLogPath;
+                //if (!Directory.Exists(logRoot))
+                //{
+                //    _loggingService.LogError($"Log path does not exist: {logRoot}");
+                //    return;
+                //}
+                //_dispatcher.Start(logRoot);
+                //_dispatcher.OnLog += (log) =>
+                //{
+                //    _loggingService.LogInformation(log);
+                //};
+                //_resultService.OnLog += (log) =>
+                //{
+                //    _loggingService.LogInformation(log);
+                //};
+                //_resultService.Start(logRoot);
                 _ = Task.Run(StartSerialProxyAsync);
                 await Task.Run(async () =>
                 {
@@ -250,6 +250,16 @@ namespace ScanOutTool.ViewModels
                     var readScanOutTask = ReadScanOutResult(sentData);
                     bool result = await readScanOutTask;
 
+                    var (isHSMESBlocked, reason) = _dataExecuter.IsBlocked(sentData);
+                    if (isHSMESBlocked)
+                    {                       
+                        PlayNgSound();
+                        InformationMessage = $"PID {sentData} đã bị block do {reason} , vui lòng kiểm tra lại";
+                        IsMessageOn = true;
+                        await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNo, pID); // Gửi dữ liệu scanout để clear
+                        return true;
+                    }
+
                     if (result && !isInChooseEBRMode)
                     {
                         bool executeResult = await SendDataExecuteAsync();
@@ -280,6 +290,7 @@ namespace ScanOutTool.ViewModels
 
             _serialProxyManager.OnDataForwardingAsync += async (s, e) =>
             {
+                PlayBeepSound();
                 mainSW.Restart();
                 IsMessageOn = false;
                 _loggingService.LogInformation($"[Event] {(e.FromDevice ? "Device" : "App")} gửi: {e.Data}");
@@ -296,16 +307,7 @@ namespace ScanOutTool.ViewModels
                         return;
                     }    
                     
-                }
-                var (isHSMESBlocked, reason) = _dataExecuter.IsBlocked(e.Data);
-                if (isHSMESBlocked)
-                {
-                    e.Cancel = true; // Ngăn không cho dữ liệu đi tiếp
-                    PlayNgSound();
-                    InformationMessage = $"PID {e.Data} đã bị block do {reason} , vui lòng kiểm tra lại";
-                    IsMessageOn = true;
-                    return;
-                }
+                }                
 
                 _loggingService.LogInformation($"Check block done,{mainSW.ElapsedMilliseconds}ms");
                 // Vaof chees ddooj chonj EBR
@@ -395,7 +397,7 @@ namespace ScanOutTool.ViewModels
         {
             try
             {
-                _autoScanOutUI = new AutoScanOutUI();
+                _autoScanOutUI = new AutoScanOutUI(_loggingService);
                 //var rect = _autoScanOutUI.GetResultElementBounds();
                 //Application.Current.Dispatcher.Invoke(() =>
                 //{
@@ -749,6 +751,20 @@ namespace ScanOutTool.ViewModels
             try
             {
                 string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "scan_fail.wav");
+                var player = new SoundPlayer(filePath); // đường dẫn tới file âm thanh NG
+                player.Play(); // hoặc PlaySync() nếu muốn đợi âm thanh phát xong
+            }
+            catch (Exception ex)
+            {
+                _loggingService.LogError("Lỗi phát âm thanh: " + ex.Message);
+            }
+        }
+
+        void PlayBeepSound()
+        {
+            try
+            {
+                string filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "ScannerBeepSound.wav");
                 var player = new SoundPlayer(filePath); // đường dẫn tới file âm thanh NG
                 player.Play(); // hoặc PlaySync() nếu muốn đợi âm thanh phát xong
             }

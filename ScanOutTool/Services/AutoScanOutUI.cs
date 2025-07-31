@@ -1,9 +1,11 @@
 ﻿using ScanOutTool.Models;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Timers;
 using UIAutoLib.Services;
 
 namespace ScanOutTool.Services
@@ -27,18 +29,50 @@ namespace ScanOutTool.Services
 
         private event Action<string> pIDChanged;
 
+        private Timer _timer;
+
+        private readonly ILoggingService _loggingService;
 
 
-        public AutoScanOutUI()
+
+        public AutoScanOutUI(ILoggingService loggingService)
         {
+            _loggingService = loggingService;
             automation = new AutomationService();
             isAttached = automation.AttachToProcess(processName);
             if (!isAttached)
             {
                 throw new Exception($"Failed to attach to the process. Please open App {processName}");
             }
+            _timer = new Timer(5000);
+            _timer.Elapsed += TimerElapsed;
+            _timer.AutoReset = true;
+            _timer.Start();
+        }
+        private int? GetProcessIdByName(string processName)
+        {
+            var processes = Process.GetProcessesByName(processName);
+            return processes.FirstOrDefault()?.Id;
         }
 
+        private void TimerElapsed(object sender, ElapsedEventArgs e)
+        {
+            int? currentPid = GetProcessIdByName(processName);
+            if ( currentPid != automation.ProcessId)
+            {
+                _loggingService.LogInformation($"Process {processName} was changed from {automation.ProcessId} to {currentPid}");
+
+                isAttached = automation.AttachToProcess(processName);
+                if (!isAttached)
+                {
+                    _loggingService.LogError($"Can not attach to process {processName} with id {automation.ProcessId}" );
+                }
+                else
+                {
+                    _loggingService.LogInformation($"Attached to process {processName} with id {automation.ProcessId}");
+                }
+            }
+        }
         public string ReadPID()
         {
             if (isAttached)
