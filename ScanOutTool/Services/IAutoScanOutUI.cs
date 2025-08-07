@@ -19,5 +19,6 @@ namespace ScanOutTool.Services
         IntPtr GetMainHandle();
 
         (double X, double Y, double Width, double Height) GetResultElementBounds();
+        bool IsScanoutUI();
     }
 }

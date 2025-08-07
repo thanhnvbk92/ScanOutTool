@@ -247,6 +247,8 @@ namespace ScanOutTool.ViewModels
                     {
                         return true;
                     }
+
+                    if (!_autoScanOutUI.IsScanoutUI()) return true;
                     var readScanOutTask = ReadScanOutResult(sentData);
                     bool result = await readScanOutTask;
 
@@ -256,7 +258,6 @@ namespace ScanOutTool.ViewModels
                         PlayNgSound();
                         InformationMessage = $"PID {sentData} đã bị block do {reason} , vui lòng kiểm tra lại";
                         IsMessageOn = true;
-                        await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNo, pID); // Gửi dữ liệu scanout để clear
                         return true;
                     }
 
@@ -291,7 +292,7 @@ namespace ScanOutTool.ViewModels
             _serialProxyManager.OnDataForwardingAsync += async (s, e) =>
             {
                 PlayBeepSound();
-                mainSW.Restart();
+                mainSW.Restart(); //Restart main stop watch
                 IsMessageOn = false;
                 _loggingService.LogInformation($"[Event] {(e.FromDevice ? "Device" : "App")} gửi: {e.Data}");
               

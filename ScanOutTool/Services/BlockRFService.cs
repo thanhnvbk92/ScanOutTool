@@ -20,7 +20,7 @@ namespace ScanOutTool.Services
         {
             _loggingService = loggingService;
             _loggingService.LogInformation("Khởi tạo dịch vụ BlockRFService...");
-            _httpClient = new HttpClient();
+            _httpClient = new HttpClient() {Timeout =TimeSpan.FromSeconds(1) };
         }
 
         public async Task<RFInfo> IsBlock(string pid)

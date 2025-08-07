@@ -19,6 +19,7 @@ namespace ScanOutTool.Services
         private string resultTextBoxName = "txtResult";
         private string messageTextBoxName = "txtMessage";
         private string progressTextName = "txtProgress";
+        private string processIDTextName = "txtPROCID";
 
         private AutomationService automation;
         private bool isAttached = false;
@@ -58,6 +59,9 @@ namespace ScanOutTool.Services
         private void TimerElapsed(object sender, ElapsedEventArgs e)
         {
             int? currentPid = GetProcessIdByName(processName);
+            //_loggingService.LogInformation($"IsScanOut: {IsScanoutUI()}");
+            //_loggingService.LogInformation($"IsHaveDialog: {automation.IsHaveDialogWindow()}");
+
             if ( currentPid != automation.ProcessId)
             {
                 _loggingService.LogInformation($"Process {processName} was changed from {automation.ProcessId} to {currentPid}");
@@ -73,6 +77,19 @@ namespace ScanOutTool.Services
                 }
             }
         }
+
+        public string ReadMainWindowTitle()
+        {
+            if (isAttached)
+            {
+                return automation.GetMainWindowTitle();
+            }
+            else
+            {
+                throw new Exception("Failed to attach to the process.");
+            }
+        }
+
         public string ReadPID()
         {
             if (isAttached)
@@ -208,6 +225,11 @@ namespace ScanOutTool.Services
             pCB.Result = ReadResult();
             pCB.Message = ReadMessage();
             return pCB;
+        }
+
+        public bool IsScanoutUI()
+        {
+            return automation.ReadTextByAutomationId(processIDTextName).Contains("PGZM5000");
         }
     }
 }
