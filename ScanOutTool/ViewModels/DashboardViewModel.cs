@@ -262,7 +262,7 @@ namespace ScanOutTool.ViewModels
                     }
 
                     if (result && !isInChooseEBRMode)
-                    {
+                    {                        
                         bool executeResult = await SendDataExecuteAsync();
                         if (_configService.Config.IsRobotMode && executeResult)
                         {
