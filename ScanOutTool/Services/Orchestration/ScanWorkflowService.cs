@@ -437,6 +437,12 @@ namespace ScanOutTool.Services.Orchestration
                 if (!result.Success)
                 {
                     _logger.LogError("Serial data processing failed: {Error}", result.ErrorMessage);
+                    
+                    // ✅ NEW: Send NG feedback for errors if needed
+                    if (result.ShouldSendFeedback)
+                    {
+                        await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.FeedbackResult);
+                    }
                     return false;
                 }
 
@@ -446,8 +452,14 @@ namespace ScanOutTool.Services.Orchestration
                     return true;
                 }
 
-                // Send feedback to scanner
-                await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.ScanSuccess);
+                // ✅ UPDATED: Send feedback based on HMES result, not scan result
+                if (result.ShouldSendFeedback)
+                {
+                    await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.FeedbackResult);
+                    
+                    _logger.LogInformation("Feedback sent: {Feedback} (HMES Success: {HMESSuccess})", 
+                        result.FeedbackResult ? "OK" : "NG", result.HMESSuccess);
+                }
 
                 // Notify ViewModel with result data
                 ScanDataReceived?.Invoke(this, new ScanDataReceivedEventArgs
@@ -464,6 +476,10 @@ namespace ScanOutTool.Services.Orchestration
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing serial data: {Data}", sentData);
+                
+                // ✅ NEW: Send NG feedback for exceptions
+                await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, $"Processing error: {ex.Message}");
+                
                 ErrorOccurred?.Invoke(this, new ErrorOccurredEventArgs
                 {
                     ErrorMessage = $"Error processing serial data: {ex.Message}",
@@ -474,134 +490,6 @@ namespace ScanOutTool.Services.Orchestration
             }
         }
 
-        /// <summary>
-        /// ✅ WORKFLOW LAYER: Contains App State logic and calls appropriate HMES service methods
-        /// </summary>
-        private async Task SendToHMESAsync(string pid)
-        {
-            try
-            {
-                var config = _configService.Config;
-                _logger.LogInformation("SendToHMESAsync: Sending PID to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
-                
-                bool success = false;
-
-                // ✅ WORKFLOW LAYER: App State logic determines which service method to call
-                switch (config.SelectedRunMode)
-                {
-                    case AppConfig.RunMode.ScanOutOnly:
-                        _logger.LogInformation("SendToHMESAsync: ScanOutOnly mode - calling SendToDatabaseAsync");
-                        if (_autoScanOutUI != null)
-                        {
-                            var workOrder = _autoScanOutUI.ReadWO();
-                            var partNumber = _autoScanOutUI.ReadEBR();
-                            var result = _autoScanOutUI.ReadResult();
-                            var message = _autoScanOutUI.ReadMessage();
-                            
-                            success = await _hmesService.SendToDatabaseAsync(pid, workOrder, partNumber, result, message);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("SendToHMESAsync: AutoScanOutUI not available for ScanOutOnly mode");
-                        }
-                        break;
-
-                    case AppConfig.RunMode.RescanOnly:
-                        _logger.LogInformation("SendToHMESAsync: RescanOnly mode - calling SendToWebAsync");
-                        success = await _hmesService.SendToWebAsync(pid);
-                        break;
-
-                    case AppConfig.RunMode.ScanOut_Rescan:
-                        _logger.LogInformation("SendToHMESAsync: ScanOut_Rescan mode - calling SendToDatabaseAndWebAsync");
-                        if (_autoScanOutUI != null)
-                        {
-                            var workOrder = _autoScanOutUI.ReadWO();
-                            var partNumber = _autoScanOutUI.ReadEBR();
-                            var result = _autoScanOutUI.ReadResult();
-                            var message = _autoScanOutUI.ReadMessage();
-                            
-                            success = await _hmesService.SendToDatabaseAndWebAsync(pid, workOrder, partNumber, result, message);
-                        }
-                        else
-                        {
-                            // Fallback to web only if AutoScanOutUI not available
-                            _logger.LogWarning("SendToHMESAsync: AutoScanOutUI not available, falling back to Web only");
-                            success = await _hmesService.SendToWebAsync(pid);
-                        }
-                        break;
-
-                    default:
-                        _logger.LogWarning("SendToHMESAsync: Unknown RunMode {RunMode}, defaulting to ScanOut_Rescan", config.SelectedRunMode);
-                        goto case AppConfig.RunMode.ScanOut_Rescan;
-                }
-                
-                if (success)
-                {
-                    _logger.LogInformation("SendToHMESAsync: Successfully sent to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
-                }
-                else
-                {
-                    _logger.LogWarning("SendToHMESAsync: Failed to send to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send data to HMES for PID: {PID}", pid);
-                // Don't throw - HMES failure shouldn't stop the workflow
-            }
-        }
-
-        /// <summary>
-        /// ✅ RESTORED: Send feedback to scanner port based on scan result
-        /// </summary>
-        private async Task SendFeedbackToScannerAsync(bool isOK)
-        {
-            try
-            {
-                var config = _configService.Config;
-                
-                // Check if feedback is enabled
-                if (!config.EnableScannerFeedback)
-                {
-                    _logger.LogDebug("Scanner feedback is disabled in configuration");
-                    return;
-                }
-
-                if (_serialProxyManager == null)
-                {
-                    _logger.LogWarning("SerialProxyManager is not initialized, cannot send feedback");
-                    return;
-                }
-
-                // Add configurable delay before sending feedback
-                if (config.FeedbackDelayMs > 0)
-                {
-                    await Task.Delay(config.FeedbackDelayMs).ConfigureAwait(false);
-                }
-
-                // Use configured feedback messages
-                string feedbackMessage = isOK ? config.OkFeedbackMessage : config.NgFeedbackMessage;
-                
-                // Add carriage return for proper serial communication
-                var feedbackData = feedbackMessage + "\r";
-
-                // Send feedback to scanner (device port)
-                await _serialProxyManager.SendToDeviceAsync(feedbackData).ConfigureAwait(false);
-
-                _logger.LogInformation("Sent feedback to scanner: {Feedback} (Result: {Result})", 
-                    feedbackMessage, isOK ? "OK" : "NG");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error sending feedback to scanner");
-                ErrorOccurred?.Invoke(this, new ErrorOccurredEventArgs
-                {
-                    ErrorMessage = $"Failed to send feedback to scanner: {ex.Message}",
-                    Exception = ex,
-                    Severity = ErrorSeverity.Warning
-                });
-            }
-        }
 
         private async Task OnSerialDataForwarding(object sender, SerialDataEventArgs e)
         {
@@ -679,49 +567,6 @@ namespace ScanOutTool.Services.Orchestration
             }
         }
 
-        /// <summary>
-        /// ✅ IMPROVED: Return nullable bool to indicate success/failure/timeout
-        /// </summary>
-        private async Task<bool?> ReadScanOutResultAsync(string pid)
-        {
-            if (_autoScanOutUI == null)
-            {
-                _logger.LogError("AutoScanOutUI is not initialized");
-                return null;
-            }
-
-            var cleanPid = pid.Trim();
-            var timeout = TimeSpan.FromSeconds(5);
-            var startTime = DateTime.Now;
-
-            while (DateTime.Now - startTime < timeout)
-            {
-                if (cleanPid == _autoScanOutUI.ReadPID())
-                {
-                    var result = _autoScanOutUI.ReadResult();
-                    _logger.LogInformation("Scan result for PID {PID}: {Result}", cleanPid, result);
-                    return result == "OK";
-                }
-
-                if (_autoScanOutUI.ReadPID().Contains("PLZ Read below Message and Clear") && 
-                    _autoScanOutUI.ReadMessage().Contains(cleanPid))
-                {
-                    _logger.LogInformation("Scan failed for PID {PID}: {Message}", cleanPid, _autoScanOutUI.ReadMessage());
-                    return false;
-                }
-
-                if (_autoScanOutUI.ReadMessage().Contains($"Scan Data : [{cleanPid}]") )
-                {
-                    _logger.LogInformation("Scan failed for PID {PID}: {Message}", cleanPid, _autoScanOutUI.ReadMessage());
-                    return false;
-                }
-
-                await Task.Delay(50).ConfigureAwait(false);
-            }
-
-            _logger.LogError("Timeout reading scan result for PID: {PID}", cleanPid);
-            return null; // Timeout case
-        }
 
         private void ChangeStatus(WorkflowStatus newStatus, string? message = null)
         {

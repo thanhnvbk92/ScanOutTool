@@ -49,40 +49,188 @@ namespace ScanOutTool.Services.Orchestration
                     return SerialProcessResult.CreateError("ScanOut UI not available");
                 }
 
-                // Read scan result
-                var scanResult = await ReadScanOutResultAsync(sentData);
+                var config = _configService.Config;
                 
-                if (scanResult != null)
+                // ? NEW: Process based on RunMode with proper feedback timing
+                switch (config.SelectedRunMode)
                 {
-                    // Send to HMES based on RunMode
-                    var hmesSuccess = await SendToHMESBasedOnRunMode(sentData, scanResult.Value);
-                    
-                    // Create result with scan data
-                    return SerialProcessResult.CreateScanResult(
-                        pid: _autoScanOutUI.ReadPID(),
-                        workOrder: _autoScanOutUI.ReadWO(),
-                        partNumber: _autoScanOutUI.ReadEBR(),
-                        result: _autoScanOutUI.ReadResult(),
-                        message: _autoScanOutUI.ReadMessage(),
-                        scanSuccess: scanResult.Value,
-                        hmesSuccess: hmesSuccess
-                    );
-                }
-                else
-                {
-                    // Timeout or error case - try rescan
-                    var hmesSuccess = await SendToHMESBasedOnRunMode(sentData, false);
-                    
-                    return SerialProcessResult.CreateRescanResult(
-                        pid: sentData,
-                        hmesSuccess: hmesSuccess
-                    );
+                    case AppConfig.RunMode.ScanOutOnly:
+                        return await ProcessScanOutOnlyAsync(sentData);
+                        
+                    case AppConfig.RunMode.RescanOnly:
+                        return await ProcessRescanOnlyAsync(sentData);
+                        
+                    case AppConfig.RunMode.ScanOut_Rescan:
+                        return await ProcessScanOutAndRescanAsync(sentData);
+                        
+                    default:
+                        _logger.LogWarning("Unknown RunMode: {RunMode}, defaulting to ScanOut_Rescan", config.SelectedRunMode);
+                        return await ProcessScanOutAndRescanAsync(sentData);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing serial data: {Data}", sentData);
                 return SerialProcessResult.CreateError($"Processing error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// ? NEW: Process ScanOutOnly - Send feedback after database validation
+        /// </summary>
+        private async Task<SerialProcessResult> ProcessScanOutOnlyAsync(string sentData)
+        {
+            try
+            {
+                // Read scan result from ScanOut UI
+                var scanResult = await ReadScanOutResultAsync(sentData);
+                
+                if (scanResult == null)
+                {
+                    // Scan timeout/error
+                    return SerialProcessResult.CreateScanResult(
+                        pid: sentData,
+                        workOrder: "",
+                        partNumber: "",
+                        result: "NG",
+                        message: "Scan timeout",
+                        scanSuccess: false,
+                        hmesSuccess: false,
+                        shouldSendFeedback: true,
+                        feedbackResult: false  // NG feedback
+                    );
+                }
+
+                // Get scan data
+                var workOrder = _autoScanOutUI.ReadWO();
+                var partNumber = _autoScanOutUI.ReadEBR();
+                var result = _autoScanOutUI.ReadResult();
+                var message = _autoScanOutUI.ReadMessage();
+
+                // ? KEY: Only send to HMES if scan is OK, then feedback based on HMES result
+                bool hmesSuccess = false;
+                bool shouldSendFeedback = true;
+                bool feedbackResult = false;
+
+                if (scanResult.Value) // Scan OK
+                {
+                    // Send to HMES Database
+                    hmesSuccess = await _hmesService.SendToDatabaseAsync(sentData, workOrder, partNumber, result, message);
+                    feedbackResult = hmesSuccess; // Feedback based on HMES result
+                }
+                else
+                {
+                    // Scan NG - no HMES, feedback NG
+                    feedbackResult = false;
+                }
+
+                return SerialProcessResult.CreateScanResult(
+                    pid: _autoScanOutUI.ReadPID(),
+                    workOrder: workOrder,
+                    partNumber: partNumber,
+                    result: result,
+                    message: message,
+                    scanSuccess: scanResult.Value,
+                    hmesSuccess: hmesSuccess,
+                    shouldSendFeedback: shouldSendFeedback,
+                    feedbackResult: feedbackResult
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ProcessScanOutOnlyAsync");
+                return SerialProcessResult.CreateError($"ScanOutOnly error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// ? NEW: Process RescanOnly - Send feedback after HMES Web success
+        /// </summary>
+        private async Task<SerialProcessResult> ProcessRescanOnlyAsync(string sentData)
+        {
+            try
+            {
+                // For rescan mode, send directly to HMES Web
+                var hmesSuccess = await _hmesService.SendToWebAsync(sentData);
+
+                return SerialProcessResult.CreateRescanResult(
+                    pid: sentData,
+                    hmesSuccess: hmesSuccess,
+                    shouldSendFeedback: true,
+                    feedbackResult: hmesSuccess  // ? KEY: Feedback based on HMES Web result
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ProcessRescanOnlyAsync");
+                return SerialProcessResult.CreateError($"RescanOnly error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// ? NEW: Process ScanOut + Rescan - Send feedback after both operations complete
+        /// </summary>
+        private async Task<SerialProcessResult> ProcessScanOutAndRescanAsync(string sentData)
+        {
+            try
+            {
+                // Read scan result from ScanOut UI
+                var scanResult = await ReadScanOutResultAsync(sentData);
+                
+                if (scanResult == null)
+                {
+                    // Scan timeout/error
+                    return SerialProcessResult.CreateScanResult(
+                        pid: sentData,
+                        workOrder: "",
+                        partNumber: "",
+                        result: "NG",
+                        message: "Scan timeout",
+                        scanSuccess: false,
+                        hmesSuccess: false,
+                        shouldSendFeedback: true,
+                        feedbackResult: false
+                    );
+                }
+
+                // Get scan data
+                var workOrder = _autoScanOutUI.ReadWO();
+                var partNumber = _autoScanOutUI.ReadEBR();
+                var result = _autoScanOutUI.ReadResult();
+                var message = _autoScanOutUI.ReadMessage();
+
+                bool hmesSuccess = false;
+                bool shouldSendFeedback = true;
+                bool feedbackResult = false;
+
+                if (scanResult.Value) // Scan OK
+                {
+                    // Send to both Database and Web
+                    hmesSuccess = await _hmesService.SendToDatabaseAndWebAsync(sentData, workOrder, partNumber, result, message);
+                    feedbackResult = hmesSuccess; // ? KEY: Feedback based on both DB + Web result
+                }
+                else
+                {
+                    // Scan NG - no HMES, feedback NG
+                    feedbackResult = false;
+                }
+
+                return SerialProcessResult.CreateScanResult(
+                    pid: _autoScanOutUI.ReadPID(),
+                    workOrder: workOrder,
+                    partNumber: partNumber,
+                    result: result,
+                    message: message,
+                    scanSuccess: scanResult.Value,
+                    hmesSuccess: hmesSuccess,
+                    shouldSendFeedback: shouldSendFeedback,
+                    feedbackResult: feedbackResult
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ProcessScanOutAndRescanAsync");
+                return SerialProcessResult.CreateError($"ScanOut_Rescan error: {ex.Message}");
             }
         }
 
@@ -189,6 +337,10 @@ namespace ScanOutTool.Services.Orchestration
         public bool ScanSuccess { get; set; }
         public bool HMESSuccess { get; set; }
         
+        // ? NEW: Feedback control
+        public bool ShouldSendFeedback { get; set; }
+        public bool FeedbackResult { get; set; } // True = OK, False = NG
+        
         // Scan data
         public string PID { get; set; } = string.Empty;
         public string WorkOrder { get; set; } = string.Empty;
@@ -197,13 +349,16 @@ namespace ScanOutTool.Services.Orchestration
         public string Message { get; set; } = string.Empty;
 
         public static SerialProcessResult CreateScanResult(string pid, string workOrder, string partNumber, 
-            string result, string message, bool scanSuccess, bool hmesSuccess)
+            string result, string message, bool scanSuccess, bool hmesSuccess, 
+            bool shouldSendFeedback = false, bool feedbackResult = false)
         {
             return new SerialProcessResult
             {
                 Success = true,
                 ScanSuccess = scanSuccess,
                 HMESSuccess = hmesSuccess,
+                ShouldSendFeedback = shouldSendFeedback,
+                FeedbackResult = feedbackResult,
                 PID = pid,
                 WorkOrder = workOrder,
                 PartNumber = partNumber,
@@ -212,13 +367,16 @@ namespace ScanOutTool.Services.Orchestration
             };
         }
 
-        public static SerialProcessResult CreateRescanResult(string pid, bool hmesSuccess)
+        public static SerialProcessResult CreateRescanResult(string pid, bool hmesSuccess, 
+            bool shouldSendFeedback = false, bool feedbackResult = false)
         {
             return new SerialProcessResult
             {
                 Success = true,
                 ScanSuccess = true, // Assume rescan is OK
                 HMESSuccess = hmesSuccess,
+                ShouldSendFeedback = shouldSendFeedback,
+                FeedbackResult = feedbackResult,
                 PID = pid,
                 Result = "OK",
                 Message = "Rescan completed"
@@ -231,6 +389,7 @@ namespace ScanOutTool.Services.Orchestration
             {
                 Success = true,
                 IsSpecialCommand = true,
+                ShouldSendFeedback = false,
                 Message = $"Special command: {command}"
             };
         }
@@ -240,7 +399,9 @@ namespace ScanOutTool.Services.Orchestration
             return new SerialProcessResult
             {
                 Success = false,
-                ErrorMessage = errorMessage
+                ErrorMessage = errorMessage,
+                ShouldSendFeedback = true,
+                FeedbackResult = false // NG feedback for errors
             };
         }
     }
