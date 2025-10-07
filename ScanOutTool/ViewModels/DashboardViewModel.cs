@@ -104,14 +104,12 @@ namespace ScanOutTool.ViewModels
         {
             RunModes = Enum.GetValues<RunMode>().ToList();
             
-            // ✅ RESTORED: Load from config
+            // Load from config
             SelectedRunMode = (RunMode)(int)_configService.Config.SelectedRunMode;
             SelectedEBR = _configService.Config.SelectedEBR;
             
             IsStarted = false;
             StartBtnText = "START";
-            
-            _loggingService.LogInformation("DASHBOARD: DashboardViewModel initialized");
         }
 
         private void SubscribeToEvents()
@@ -142,26 +140,21 @@ namespace ScanOutTool.ViewModels
             {
                 IsSessionStarting = true;
                 UpdateButtonState();
-                _loggingService.LogInformation("USER ACTION: Start button clicked - initiating workflow startup");
+                _loggingService.LogInformation("Starting workflow...");
 
-                // ✅ NEW: Add timeout to prevent hanging
+                // Add timeout to prevent hanging
                 timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
                     _cancellationTokenSource.Token, timeoutCts.Token);
-
-                _loggingService.LogInformation("DASHBOARD: Calling ScanWorkflowService.StartAsync...");
                 
                 var result = await _scanWorkflowService
                     .StartAsync(linkedCts.Token)
                     .ConfigureAwait(false);
 
-                _loggingService.LogInformation("DASHBOARD: ScanWorkflowService.StartAsync completed with result: " + result.Success);
-
                 if (result.Success)
                 {
                     IsStarted = true;
-                    _loggingService.LogInformation("DASHBOARD: Workflow startup completed successfully");
-                    _loggingService.LogInformation("DASHBOARD: System is now ready to process scan data");
+                    _loggingService.LogInformation("Workflow started successfully - System ready");
                     
                     await Application.Current.Dispatcher.InvokeAsync(() =>
                     {
@@ -170,18 +163,11 @@ namespace ScanOutTool.ViewModels
                 }
                 else
                 {
-                    _loggingService.LogError("DASHBOARD: Workflow startup FAILED");
-                    _loggingService.LogError("DASHBOARD: Failure reason: " + result.Message);
+                    _loggingService.LogError("Workflow startup failed: " + result.Message);
                     if (result.Exception != null)
                     {
-                        _loggingService.LogError("DASHBOARD: Exception details logged in service layer");
+                        _loggingService.LogError("Exception: " + result.Exception.Message);
                     }
-                    
-                    _loggingService.LogError("DASHBOARD: Please check the following:");
-                    _loggingService.LogError("   COM ports configuration in Settings");
-                    _loggingService.LogError("   ScanOut application is running");
-                    _loggingService.LogError("   PLC connection (if enabled)");
-                    _loggingService.LogError("   Network connectivity");
                     
                     await Application.Current.Dispatcher.InvokeAsync(() =>
                     {
@@ -192,7 +178,7 @@ namespace ScanOutTool.ViewModels
             }
             catch (OperationCanceledException) when (timeoutCts?.Token.IsCancellationRequested == true)
             {
-                _loggingService.LogError("DASHBOARD: Workflow startup TIMEOUT after 30 seconds");
+                _loggingService.LogError("Workflow startup timeout after 30 seconds");
                 await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     IsStarted = false;
@@ -201,9 +187,7 @@ namespace ScanOutTool.ViewModels
             }
             catch (Exception ex)
             {
-                _loggingService.LogError("DASHBOARD: Unexpected error during workflow startup");
-                _loggingService.LogError("DASHBOARD: Error: " + ex.Message);
-                _loggingService.LogError("DASHBOARD: Stack trace: " + ex.StackTrace);
+                _loggingService.LogError("Workflow startup error: " + ex.Message);
                 
                 await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
@@ -216,7 +200,6 @@ namespace ScanOutTool.ViewModels
                 timeoutCts?.Dispose();
                 IsSessionStarting = false;
                 UpdateButtonState();
-                _loggingService.LogInformation("DASHBOARD: Startup process completed (IsSessionStarting = false)");
             }
         }
 
@@ -224,7 +207,7 @@ namespace ScanOutTool.ViewModels
         {
             try
             {
-                _loggingService.LogInformation("USER ACTION: Stop button clicked - stopping workflow");
+                _loggingService.LogInformation("Stopping workflow...");
 
                 var result = await _scanWorkflowService
                     .StopAsync(_cancellationTokenSource.Token)
@@ -234,16 +217,16 @@ namespace ScanOutTool.ViewModels
                 {
                     IsStarted = false;
                     ClearScanData();
-                    _loggingService.LogInformation("DASHBOARD: Scan workflow stopped successfully");
+                    _loggingService.LogInformation("Workflow stopped successfully");
                 }
                 else
                 {
-                    _loggingService.LogWarning("DASHBOARD: Workflow stop completed with warnings: " + result.Message);
+                    _loggingService.LogWarning("Workflow stop completed with warnings: " + result.Message);
                 }
             }
             catch (Exception ex)
             {
-                _loggingService.LogError("DASHBOARD: Error stopping scan workflow: " + ex.Message);
+                _loggingService.LogError("Error stopping workflow: " + ex.Message);
             }
         }
 
@@ -251,33 +234,27 @@ namespace ScanOutTool.ViewModels
         {
             Application.Current.Dispatcher.BeginInvoke(() =>
             {
-                _loggingService.LogInformation($"WORKFLOW STATUS CHANGED: {e.PreviousStatus} → {e.CurrentStatus}");
-                
                 switch (e.CurrentStatus)
                 {
                     case WorkflowStatus.Starting:
                         IsSessionStarting = true;
                         UpdateButtonState();
-                        _loggingService.LogInformation("UI: Status - Starting services...");
                         break;
                     case WorkflowStatus.Running:
                         IsStarted = true;
                         IsSessionStarting = false;
                         UpdateButtonState();
-                        _loggingService.LogInformation("UI: Status - System Ready, Workflow operational");
                         break;
                     case WorkflowStatus.Stopped:
                         IsStarted = false;
                         IsSessionStarting = false;
                         UpdateButtonState();
-                        _loggingService.LogInformation("UI: Status - Workflow stopped");
                         break;
                     case WorkflowStatus.Error:
                         IsStarted = false;
                         IsSessionStarting = false;
-                        _loggingService.LogError("WORKFLOW ERROR STATUS: " + e.Message);
+                        _loggingService.LogError("Workflow error: " + e.Message);
                         UpdateButtonState();
-                        _loggingService.LogInformation("UI: Status - Error occurred, system reset, ready for retry");
                         break;
                 }
             });
@@ -293,9 +270,7 @@ namespace ScanOutTool.ViewModels
                 Result = e.Result;
                 ResultMessage = e.Message;
 
-                _loggingService.LogInformation($"Scan data received: PID={e.PID}, WO={e.WorkOrder}, PN={e.PartNumber}, Result={e.Result}");
-
-                // ✅ NEW: Update magazine quantity from HMES if available
+                // Update magazine quantity from HMES if available
                 _ = Task.Run(async () =>
                 {
                     try
@@ -315,7 +290,6 @@ namespace ScanOutTool.ViewModels
                                     await Application.Current.Dispatcher.InvokeAsync(() =>
                                     {
                                         MagazineQty = qty;
-                                        _loggingService.LogInformation($"Updated magazine quantity: {qty}");
                                     });
                                 }
                             }
@@ -342,10 +316,6 @@ namespace ScanOutTool.ViewModels
         private void OnWorkflowErrorOccurred(object? sender, ErrorOccurredEventArgs e)
         {
             _loggingService.LogError("Workflow error: " + e.ErrorMessage);
-            if (e.Exception != null)
-            {
-                _loggingService.LogError("Exception details: " + e.Exception.ToString());
-            }
             
             Application.Current.Dispatcher.BeginInvoke(() =>
             {
@@ -353,7 +323,7 @@ namespace ScanOutTool.ViewModels
                 if (e.Severity == ErrorSeverity.Critical)
                 {
                     IsStarted = false;
-                    _loggingService.LogError("CRITICAL ERROR: System stopped due to critical error");
+                    _loggingService.LogError("CRITICAL ERROR: System stopped");
                     _ = Task.Run(() => PlayNgSound());
                 }
             });
@@ -421,17 +391,15 @@ namespace ScanOutTool.ViewModels
         }
         #endregion
 
-        // ✅ RESTORED: Property change handlers to sync with config
+        // Property change handlers to sync with config
         partial void OnSelectedRunModeChanged(RunMode value)
         {
             _configService.Config.SelectedRunMode = (AppConfig.RunMode)(int)value;
-            _loggingService.LogInformation("DASHBOARD: RunMode changed to " + value.ToString());
         }
 
         partial void OnSelectedEBRChanged(string value)
         {
             _configService.Config.SelectedEBR = value;
-            _loggingService.LogInformation("DASHBOARD: SelectedEBR changed to " + value);
         }
 
         partial void OnIsSessionStartingChanged(bool value)
@@ -445,8 +413,6 @@ namespace ScanOutTool.ViewModels
 
             try
             {
-                _loggingService.LogInformation("DASHBOARD: Starting disposal process...");
-                
                 // Unsubscribe from events
                 _scanWorkflowService.StatusChanged -= OnWorkflowStatusChanged;
                 _scanWorkflowService.ScanDataReceived -= OnScanDataReceived;
@@ -457,12 +423,10 @@ namespace ScanOutTool.ViewModels
                 _cancellationTokenSource.Dispose();
                 
                 _scanWorkflowService.Dispose();
-                
-                _loggingService.LogInformation("DASHBOARD: DashboardViewModel disposed successfully");
             }
             catch (Exception ex)
             {
-                _loggingService.LogWarning("DASHBOARD: Error during ViewModel disposal: " + ex.Message);
+                _loggingService.LogWarning("Error during ViewModel disposal: " + ex.Message);
             }
 
             _disposed = true;

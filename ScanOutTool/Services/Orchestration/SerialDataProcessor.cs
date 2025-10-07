@@ -330,7 +330,7 @@ namespace ScanOutTool.Services.Orchestration
 
                             if (!quantityMatch)
                             {
-                                feedbackMessage = "NG|Miss match quantity";
+                                feedbackMessage = "NG|Mismatch quantity";
                                 feedbackResult = false;
                                 _logger.LogWarning("ScanOut_Rescan: Quantity mismatch for PID {PID}", scannerData.PID);
                             }

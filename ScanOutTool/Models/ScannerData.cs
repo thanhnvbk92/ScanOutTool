@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace ScanOutTool.Models
 {
@@ -37,7 +37,7 @@ namespace ScanOutTool.Models
                 // Check if data contains pipe separator
                 if (!trimmedData.Contains('|'))
                 {
-                    // ? ENHANCED: Support multiple legacy formats
+                    // ✅ ENHANCED: Support multiple legacy formats
                     if (trimmedData.Length == 11 || trimmedData.Length == 22)
                     {
                         // Standard PID format (11 or 22 chars)
@@ -52,7 +52,7 @@ namespace ScanOutTool.Models
                     }
                     else if (trimmedData.Length > 11)
                     {
-                        // ? NEW: PID(11)+suffix format (e.g., "12345678901I14")
+                        // ✅ NEW: PID(11)+suffix format (e.g., "12345678901I14")
                         var pidPart = trimmedData.Substring(0, 11);
                         var suffixPart = trimmedData.Substring(11);
                         
@@ -75,7 +75,7 @@ namespace ScanOutTool.Models
                     }
                     else if (trimmedData.Length > 22)
                     {
-                        // ? NEW: PID(22)+suffix format
+                        // ✅ NEW: PID(22)+suffix format
                         var pidPart22 = trimmedData.Substring(0, 22);
                         var suffixPart22 = trimmedData.Substring(22);
                         
@@ -121,7 +121,7 @@ namespace ScanOutTool.Models
                 var pid = parts[0].Trim();
                 var dataPart = parts[1].Trim();
 
-                // ? SIMPLIFIED: Only validate PID length (11 or 22 chars)
+                // ✅ SIMPLIFIED: Only validate PID length (11 or 22 chars)
                 if (pid.Length != 11 && pid.Length != 22)
                 {
                     return new ScannerData
@@ -132,7 +132,7 @@ namespace ScanOutTool.Models
                     };
                 }
 
-                // ? TRY to parse data part as quantity, but don't fail if it's not numeric
+                // ✅ TRY to parse data part as quantity, but don't fail if it's not numeric
                 int quantity = 0;
                 if (!string.IsNullOrEmpty(dataPart))
                 {
