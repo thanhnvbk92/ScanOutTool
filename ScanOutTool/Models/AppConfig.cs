@@ -9,4 +9,13 @@
     public bool IsBlockRFMode { get; set; }
     public string ServerIP { get; set; }
     public string ShopFloorLogPath { get; set; } = "C:\\Admin\\Documents\\LG CNS\\ezMES\\Logs";
+    
+    // ✅ NEW: PLC Usage Control
+    public bool UsePLC { get; set; } = true;
+    
+    // Feedback message configuration
+    public string OkFeedbackMessage { get; set; } = "OK";
+    public string NgFeedbackMessage { get; set; } = "NG";
+    public bool EnableScannerFeedback { get; set; } = true;
+    public int FeedbackDelayMs { get; set; } = 100; // Delay before sending feedback
 }

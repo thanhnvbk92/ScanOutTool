@@ -26,6 +26,15 @@ namespace ScanOutTool.ViewModels
         [ObservableProperty] private int pLCPort; 
         [ObservableProperty] private string shopFloorLogPath; 
 
+        // ✅ NEW: PLC Usage Control
+        [ObservableProperty] private bool usePLC;
+
+        // Scanner Feedback Properties
+        [ObservableProperty] private bool enableScannerFeedback;
+        [ObservableProperty] private string okFeedbackMessage;
+        [ObservableProperty] private string ngFeedbackMessage;
+        [ObservableProperty] private int feedbackDelayMs;
+
         public bool CanEdit => !_appState.IsRunning;
 
         [RelayCommand]
@@ -40,6 +49,16 @@ namespace ScanOutTool.ViewModels
             _configService.Config.PLCPort = PLCPort;
             _configService.Config.ShopFloorLogPath = ShopFloorLogPath;
             _configService.Config.IsBlockRFMode = IsBlockRFMode;
+            
+            // ✅ NEW: Save PLC usage setting
+            _configService.Config.UsePLC = UsePLC;
+            
+            // Save feedback settings
+            _configService.Config.EnableScannerFeedback = EnableScannerFeedback;
+            _configService.Config.OkFeedbackMessage = OkFeedbackMessage;
+            _configService.Config.NgFeedbackMessage = NgFeedbackMessage;
+            _configService.Config.FeedbackDelayMs = FeedbackDelayMs;
+            
             _configService.Save();
         }
 
@@ -74,6 +93,15 @@ namespace ScanOutTool.ViewModels
             PLCPort = _configService.Config.PLCPort;
             IsBlockRFMode = _configService.Config.IsBlockRFMode;
             ShopFloorLogPath = _configService.Config.ShopFloorLogPath ?? "C:\\Admin\\Documents\\LG CNS\\ezMES\\Logs";
+            
+            // ✅ NEW: Load PLC usage setting
+            UsePLC = _configService.Config.UsePLC;
+            
+            // Load feedback settings
+            EnableScannerFeedback = _configService.Config.EnableScannerFeedback;
+            OkFeedbackMessage = _configService.Config.OkFeedbackMessage ?? "OK";
+            NgFeedbackMessage = _configService.Config.NgFeedbackMessage ?? "NG";
+            FeedbackDelayMs = _configService.Config.FeedbackDelayMs;
         }
     }
 }

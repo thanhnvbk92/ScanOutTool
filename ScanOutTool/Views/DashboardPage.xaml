@@ -23,7 +23,29 @@
             
         <TextBlock Grid.Row="1" Text="{Binding InformationMessage}" Visibility="{Binding IsMessageOn, Converter={StaticResource BoolToVisibilityConverter}}" Background="Gray" Foreground="Yellow" FontSize="26" FontWeight="Bold" VerticalAlignment="Top" TextWrapping="Wrap"/>
         <StackPanel Orientation="Horizontal" Grid.Row="2" FlowDirection="RightToLeft">
-            <Button Content="{Binding StartBtnText}" Command="{Binding StartCommand}" />
+            <Button Content="{Binding StartBtnText}" 
+                    Command="{Binding StartCommand}"
+                    Visibility="{Binding IsStartButtonVisible, Converter={StaticResource BoolToVisibilityConverter}}"
+                    IsEnabled="{Binding IsStartButtonEnabled}"
+                    Width="100"
+                    Height="35"
+                    Style="{StaticResource MaterialDesignRaisedButton}"/>
+            
+            <!-- ✅ NEW: Progress indicator during startup -->
+            <StackPanel Orientation="Horizontal" 
+                        Visibility="{Binding IsSessionStarting, Converter={StaticResource BoolToVisibilityConverter}}"
+                        VerticalAlignment="Center"
+                        Margin="0,0,10,0">
+                <ProgressBar Style="{StaticResource MaterialDesignCircularProgressBar}"
+                             Value="0"
+                             IsIndeterminate="True"
+                             Width="24"
+                             Height="24"
+                             Margin="0,0,10,0"/>
+                <TextBlock Text="Starting..."
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource MaterialDesignBody}"/>
+            </StackPanel>
         </StackPanel>
     </Grid>
 </Page>

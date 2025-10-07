@@ -15,6 +15,8 @@ using ScanOutLogLib.Helpers;
 using ScanOutLogLib.Interfaces;
 using ScanOutLogLib.Services;
 using ScanOutTool.Views;
+using ScanOutTool.Services.Orchestration;
+using ScanOutTool.Services.Logging;
 
 
 namespace ScanOutTool
@@ -85,17 +87,12 @@ namespace ScanOutTool
                 }
             });
 
-
-
             var serviceCollection = new ServiceCollection();
             ConfigureServices(serviceCollection);
             Services = serviceCollection.BuildServiceProvider();
 
-            AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
-            {
-                MessageBox.Show($"Lỗi không xử lý: {sender}\r\n" + args.ExceptionObject);
-            };
-
+            // ✅ IMPROVED: Better exception handling
+            SetupGlobalExceptionHandling();
             
             // Tạo MainWindow từ DI
             var mainWindow = Services.GetRequiredService<Views.MainWindow>();
@@ -104,6 +101,7 @@ namespace ScanOutTool
 
         private void ConfigureServices(IServiceCollection services)
         {
+            // Configuration
             string exePath = Process.GetCurrentProcess().MainModule.FileName;
             string exeDirectory = Path.GetDirectoryName(exePath);
             var config = new ConfigurationBuilder()
@@ -114,15 +112,28 @@ namespace ScanOutTool
             Configuration = config;
             services.AddSingleton<IConfiguration>(config);
 
-            services.AddLogging(builder => builder.AddConsole());
+            // Logging
+            services.AddLogging(builder => 
+            {
+                builder.AddConsole();
+                builder.SetMinimumLevel(LogLevel.Information);
+            });
 
-            // ViewModels
-            services.AddTransient<ViewModels.MainViewModel>();
-            services.AddSingleton<ViewModels.DashboardViewModel>();
-            services.AddTransient<ViewModels.SettingsViewModel>();
-            services.AddTransient<ViewModels.AboutViewModel>();
+            // Logging Services
+            services.AddSingleton<ILoggingService, LoggingService>();
+            
+            // ✅ NEW: Register custom logger provider to bridge ILogger with ILoggingService
+            services.AddLogging(builder =>
+            {
+                builder.ClearProviders(); // Remove default providers
+                builder.Services.AddSingleton<ILoggerProvider>(serviceProvider => 
+                    new LoggingServiceProvider(serviceProvider.GetRequiredService<ILoggingService>()));
+            });
 
-            // Services
+            // ✅ NEW: Business Logic Services (Service Layer)
+            services.AddSingleton<IScanWorkflowService, ScanWorkflowService>();
+
+            // Infrastructure Services
             services.AddSingleton<Services.INavigationService, Services.NavigationService>();
             services.AddSingleton<Services.ILoggingService, Services.LoggingService>();
             services.AddSingleton<Services.IUpdateService, Services.UpdateService>();
@@ -130,13 +141,17 @@ namespace ScanOutTool
             services.AddSingleton<Models.IAppState, Models.AppState>();
             services.AddSingleton<IPLCServiceFactory, PLCServiceFactory>();
             services.AddSingleton<IBlockRFService, BlockRFService>();
-            //services.AddSingleton<IShowRescanResultService, ShowRescanResultService>();
-            //services.AddSingleton<IAutoScanOutUI, AutoScanOutUI>();
 
-
+            // ScanOut related services
             services.AddSingleton<IScanResultDispatcher, ScanResultDispatcher>();
             services.AddSingleton<IScanResultAwaiter, ScanResultAwaiter>();
             services.AddSingleton<IScanResultService, ScanResultService>();
+
+            // ViewModels (now much simpler)
+            services.AddTransient<ViewModels.MainViewModel>();
+            services.AddSingleton<ViewModels.DashboardViewModel>(); // Singleton for state preservation
+            services.AddTransient<ViewModels.SettingsViewModel>();
+            services.AddTransient<ViewModels.AboutViewModel>();
 
             // Views
             services.AddTransient<Views.MainWindow>();
@@ -146,26 +161,103 @@ namespace ScanOutTool
             services.AddTransient<Views.RescanInfoWindow>();
         }
 
+        private void SetupGlobalExceptionHandling()
+        {
+            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+            
+            // WPF specific exception handling
+            DispatcherUnhandledException += OnDispatcherUnhandledException;
+        }
+
+        private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            try
+            {
+                var logger = Services?.GetService<ILogger<App>>();
+                logger?.LogCritical(e.ExceptionObject as Exception, "Unhandled domain exception");
+                
+                // Only show UI if not terminating
+                if (!e.IsTerminating)
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        MessageBox.Show("A critical error occurred. Please check the logs.", "Critical Error", 
+                            MessageBoxButton.OK, MessageBoxImage.Error);
+                    });
+                }
+            }
+            catch
+            {
+                // Fallback logging
+                File.AppendAllText("crash.log", 
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}: {e.ExceptionObject}\n");
+            }
+        }
+
+        private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            try
+            {
+                var logger = Services?.GetService<ILogger<App>>();
+                logger?.LogError(e.Exception, "Unobserved task exception");
+                
+                e.SetObserved(); // Prevent app crash
+            }
+            catch
+            {
+                File.AppendAllText("crash.log", 
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}: Unobserved Task Exception: {e.Exception}\n");
+            }
+        }
+
+        private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+        {
+            try
+            {
+                var logger = Services?.GetService<ILogger<App>>();
+                logger?.LogError(e.Exception, "Unhandled dispatcher exception");
+                
+                MessageBox.Show($"An error occurred: {e.Exception.Message}", "Error", 
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                
+                e.Handled = true; // Prevent app crash
+            }
+            catch
+            {
+                // Let it crash if we can't handle it properly
+            }
+        }
+
         private void Application_Startup(object sender, StartupEventArgs e)
         {
             var trayIcon = (TaskbarIcon)FindResource("TrayIcon");
-            trayIcon.TrayMouseDoubleClick += TrayIcon_TrayMouseDoubleClick;
+            if (trayIcon != null)
+            {
+                trayIcon.TrayMouseDoubleClick += TrayIcon_TrayMouseDoubleClick;
+            }
         }
 
         private void TrayIcon_TrayMouseDoubleClick(object sender, RoutedEventArgs e)
         {
             var mainWindow = Application.Current.MainWindow;
-            mainWindow.Show();
-            mainWindow.WindowState = WindowState.Normal;
-            mainWindow.Activate();
+            if (mainWindow != null)
+            {
+                mainWindow.Show();
+                mainWindow.WindowState = WindowState.Normal;
+                mainWindow.Activate();
+            }
         }
 
         private void Menu_Show_Click(object sender, RoutedEventArgs e)
         {
             var mainWindow = Application.Current.MainWindow;
-            mainWindow.Show();
-            mainWindow.WindowState = WindowState.Normal;
-            mainWindow.Activate();
+            if (mainWindow != null)
+            {
+                mainWindow.Show();
+                mainWindow.WindowState = WindowState.Normal;
+                mainWindow.Activate();
+            }
         }
 
         private void Menu_Exit_Click(object sender, RoutedEventArgs e)
@@ -190,6 +282,24 @@ namespace ScanOutTool
                     }
                     break;
                 }
+            }
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            try
+            {
+                Services?.GetService<IScanWorkflowService>()?.Dispose();
+                (Services as IDisposable)?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                var logger = Services?.GetService<ILogger<App>>();
+                logger?.LogWarning(ex, "Error during application shutdown");
+            }
+            finally
+            {
+                base.OnExit(e);
             }
         }
     }

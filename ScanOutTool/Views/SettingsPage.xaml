@@ -13,48 +13,181 @@
             <Setter Property="Foreground" Value="{DynamicResource MaterialDesignBody}"/>
         </Style>
     </Page.Resources>
-    <Grid Margin="5" IsEnabled="{Binding CanEdit}">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <TextBox Text="{Binding ServerIP}" HorizontalAlignment="Left" VerticalAlignment="Center" Style="{StaticResource MaterialDesignFloatingHintTextBox}" materialDesign:HintAssist.Hint="Server IP" Foreground="{DynamicResource MaterialDesignBody}" Width="100"/>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <CheckBox Content="Robot Mode" IsChecked="{Binding IsRobotMode}" HorizontalAlignment="Right" Foreground="{DynamicResource MaterialDesignBody}" Visibility="Hidden"/>
-            <CheckBox Content="BlockRFMode" IsChecked="{Binding IsBlockRFMode}" HorizontalAlignment="Right" Margin="10,0,0,0" Foreground="{DynamicResource MaterialDesignBody}"/>
-            <CheckBox Content="Work Oder Mode" IsChecked="{Binding IsWOMode}" HorizontalAlignment="Right" Foreground="{DynamicResource MaterialDesignBody}"/>
-        </StackPanel>
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Visibility="{Binding IsRobotMode,Converter={StaticResource BoolToVisibilityConverter}}">
-            <TextBox Text="{Binding PLCIP}" HorizontalAlignment="Left" VerticalAlignment="Center" Style="{StaticResource MaterialDesignFloatingHintTextBox}" materialDesign:HintAssist.Hint="PLC IP" Foreground="{DynamicResource MaterialDesignBody}" Width="100" Margin="0,0,10,0"/>
-            <TextBox Text="{Binding PLCPort}" HorizontalAlignment="Left" VerticalAlignment="Center" Style="{StaticResource MaterialDesignFloatingHintTextBox}" materialDesign:HintAssist.Hint="PLC Port" Foreground="{DynamicResource MaterialDesignBody}" Width="100" Margin="0,0,10,0"/>
-        </StackPanel>
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition />
-                <ColumnDefinition Width="100"/>
-            </Grid.ColumnDefinitions>
-            <TextBox Text="{Binding ShopFloorLogPath}" HorizontalContentAlignment="Left" VerticalAlignment="Center" Style="{StaticResource MaterialDesignFloatingHintTextBox}" materialDesign:HintAssist.Hint="ShopFloor Log Folder" Foreground="{DynamicResource MaterialDesignBody}"/>
-            <Button Content="..." Command="{Binding LogBrowserCommand}" Width="80" Grid.Column="1" HorizontalAlignment="Right"/>
-        </Grid>
-       
-        <Grid Grid.Row="3" Margin="0,5">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition/>
-                <ColumnDefinition/>
-            </Grid.ColumnDefinitions>
-            <GroupBox Header="Scanner Port">
-                <controls:SerialPortSettingView DataContext="{Binding ScannerPortSettingVM}"/>
+    
+    <!-- ✅ IMPROVED: Add ScrollViewer to ensure all content is accessible -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="5">
+        <Grid IsEnabled="{Binding CanEdit}" Margin="0,0,10,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Server IP and Mode Settings -->
+            <Grid Grid.Row="0" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                
+                <TextBox Grid.Column="0" 
+                         Text="{Binding ServerIP}" 
+                         Style="{StaticResource MaterialDesignFloatingHintTextBox}" 
+                         materialDesign:HintAssist.Hint="Server IP" 
+                         Foreground="{DynamicResource MaterialDesignBody}" 
+                         Width="150"
+                         Margin="0,0,20,0"/>
+                
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <CheckBox Content="Robot Mode" 
+                              IsChecked="{Binding IsRobotMode}" 
+                              Foreground="{DynamicResource MaterialDesignBody}" 
+                              Visibility="Hidden"/>
+                    <CheckBox Content="Use PLC" 
+                              IsChecked="{Binding UsePLC}" 
+                              Margin="10,0,0,0" 
+                              Foreground="{DynamicResource MaterialDesignBody}"/>
+                    <CheckBox Content="BlockRF Mode" 
+                              IsChecked="{Binding IsBlockRFMode}" 
+                              Margin="10,0,0,0" 
+                              Foreground="{DynamicResource MaterialDesignBody}"/>
+                    <CheckBox Content="Work Order Mode" 
+                              IsChecked="{Binding IsWOMode}" 
+                              Margin="10,0,0,0" 
+                              Foreground="{DynamicResource MaterialDesignBody}"/>
+                </StackPanel>
+            </Grid>
+            
+            <!-- PLC Settings -->
+            <StackPanel Grid.Row="1" 
+                        Orientation="Horizontal" 
+                        Visibility="{Binding IsRobotMode,Converter={StaticResource BoolToVisibilityConverter}}"
+                        Margin="0,0,0,10">
+                <TextBox Text="{Binding PLCIP}" 
+                         Style="{StaticResource MaterialDesignFloatingHintTextBox}" 
+                         materialDesign:HintAssist.Hint="PLC IP" 
+                         Foreground="{DynamicResource MaterialDesignBody}" 
+                         Width="150" 
+                         Margin="0,0,10,0"/>
+                <TextBox Text="{Binding PLCPort}" 
+                         Style="{StaticResource MaterialDesignFloatingHintTextBox}" 
+                         materialDesign:HintAssist.Hint="PLC Port" 
+                         Foreground="{DynamicResource MaterialDesignBody}" 
+                         Width="100"/>
+            </StackPanel>
+            
+            <!-- Log Path -->
+            <Grid Grid.Row="2" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="100"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Text="{Binding ShopFloorLogPath}" 
+                         Style="{StaticResource MaterialDesignFloatingHintTextBox}" 
+                         materialDesign:HintAssist.Hint="ShopFloor Log Folder" 
+                         Foreground="{DynamicResource MaterialDesignBody}"/>
+                <Button Content="..." 
+                        Command="{Binding LogBrowserCommand}" 
+                        Width="80" 
+                        Grid.Column="1" 
+                        HorizontalAlignment="Right"/>
+            </Grid>
+           
+            <!-- Scanner Feedback Settings -->
+            <GroupBox Grid.Row="3" Header="Scanner Feedback Settings" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <CheckBox Grid.Row="0" Grid.ColumnSpan="4" 
+                              Content="Enable Scanner Feedback" 
+                              IsChecked="{Binding EnableScannerFeedback}" 
+                              Margin="0,0,0,10"
+                              Foreground="{DynamicResource MaterialDesignBody}"/>
+                    
+                    <TextBlock Grid.Row="1" Grid.Column="0" 
+                               Text="OK Message:" 
+                               VerticalAlignment="Center" 
+                               Margin="0,0,10,0"
+                               Foreground="{DynamicResource MaterialDesignBody}"/>
+                    <TextBox Grid.Row="1" Grid.Column="1" 
+                             Text="{Binding OkFeedbackMessage}" 
+                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                             Width="80" 
+                             Margin="0,0,20,0"
+                             IsEnabled="{Binding EnableScannerFeedback}"/>
+                    
+                    <TextBlock Grid.Row="1" Grid.Column="2" 
+                               Text="NG Message:" 
+                               VerticalAlignment="Center" 
+                               Margin="0,0,10,0"
+                               Foreground="{DynamicResource MaterialDesignBody}"/>
+                    <TextBox Grid.Row="1" Grid.Column="3" 
+                             Text="{Binding NgFeedbackMessage}" 
+                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                             Width="80"
+                             IsEnabled="{Binding EnableScannerFeedback}"/>
+                    
+                    <TextBlock Grid.Row="2" Grid.Column="0" 
+                               Text="Delay (ms):" 
+                               VerticalAlignment="Center" 
+                               Margin="0,5,10,0"
+                               Foreground="{DynamicResource MaterialDesignBody}"/>
+                    <TextBox Grid.Row="2" Grid.Column="1" 
+                             Text="{Binding FeedbackDelayMs}" 
+                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                             Width="80" 
+                             Margin="0,5,0,0"
+                             IsEnabled="{Binding EnableScannerFeedback}"/>
+                </Grid>
             </GroupBox>
-            <GroupBox Header="Shop Floor Port" Grid.Column="1">
-                <controls:SerialPortSettingView DataContext="{Binding ShopFloorPortSettingVM}"/>
-            </GroupBox>
+
+            <!-- Serial Port Settings -->
+            <Grid Grid.Row="4" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <GroupBox Header="Scanner Port" Margin="0,0,5,0">
+                    <controls:SerialPortSettingView DataContext="{Binding ScannerPortSettingVM}"/>
+                </GroupBox>
+                <GroupBox Header="Shop Floor Port" Grid.Column="1" Margin="5,0,0,0">
+                    <controls:SerialPortSettingView DataContext="{Binding ShopFloorPortSettingVM}"/>
+                </GroupBox>
+            </Grid>
+            
+            <!-- Spacer -->
+            <Grid Grid.Row="5"/>
+            
+            <!-- ✅ IMPROVED: Save Button with better styling and always visible -->
+            <Border Grid.Row="6" 
+                    Background="{DynamicResource MaterialDesignPaper}"
+                    BorderBrush="{DynamicResource MaterialDesignDivider}"
+                    BorderThickness="0,1,0,0"
+                    Padding="0,10,0,5"
+                    Margin="0,10,0,0">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Save" 
+                            Command="{Binding SaveCommand}" 
+                            Style="{StaticResource MaterialDesignRaisedButton}"
+                            Width="100"
+                            Height="35"
+                            Margin="0,0,10,0"/>
+                </StackPanel>
+            </Border>
         </Grid>
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="Save" Command="{Binding SaveCommand}" Width="80"/>
-        </StackPanel>
-    </Grid>
+    </ScrollViewer>
 </Page>
