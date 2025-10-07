@@ -569,27 +569,26 @@ namespace ScanOutTool.Services.Orchestration
             }
             else if (!data.Contains("CLEAR") && !data.Contains("TRACE"))
             {
-                // ✅ UPDATED: Support new PID|qty format validation
+                // ✅ SIMPLIFIED: Only validate PID part (before "|") has 11 or 22 characters
                 var trimmedData = e.Data.Trim();
                 bool isValidFormat = false;
 
                 if (trimmedData.Contains("|"))
                 {
-                    // New format: PID|qty (e.g., "509HS123456|18")
-                    var parts = trimmedData.Split('|');
-                    if (parts.Length == 2)
+                    // New format: PID|anything (e.g., "509HS123456|18", "11111111119I|14")
+                    var pidPart = trimmedData.Split('|')[0].Trim();
+                    
+                    // ✅ Only check PID length (11 or 22 characters)
+                    if (pidPart.Length == 11 || pidPart.Length == 22)
                     {
-                        var pid = parts[0].Trim();
-                        var qtyString = parts[1].Trim();
-                        
-                        // Validate PID length (11 or 22 characters) and quantity is numeric
-                        if ((pid.Length == 11 || pid.Length == 22) && 
-                            int.TryParse(qtyString, out int qty) && qty >= 0)
-                        {
-                            isValidFormat = true;
-                            _logger.LogInformation("Valid PID|qty format: PID={PID} ({PIDLength} chars), Qty={Qty}", 
-                                pid, pid.Length, qty);
-                        }
+                        isValidFormat = true;
+                        _logger.LogInformation("Valid PID|data format: PID={PID} ({PIDLength} chars)", 
+                            pidPart, pidPart.Length);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Invalid PID length in PID|data format: PID={PID} ({PIDLength} chars), expected 11 or 22", 
+                            pidPart, pidPart.Length);
                     }
                 }
                 else
@@ -601,16 +600,20 @@ namespace ScanOutTool.Services.Orchestration
                         _logger.LogInformation("Valid legacy PID format: {PID} ({Length} chars)", 
                             trimmedData, trimmedData.Length);
                     }
+                    else
+                    {
+                        _logger.LogInformation("Invalid legacy PID length: {PID} ({Length} chars), expected 11 or 22", 
+                            trimmedData, trimmedData.Length);
+                    }
                 }
 
                 if (!isValidFormat)
                 {
                     e.Cancel = true;
-                    _logger.LogInformation("Invalid data format: {Data} (Length: {Length})", 
-                        trimmedData, trimmedData.Length);
+                    _logger.LogInformation("Blocking invalid data: {Data}", trimmedData);
                     
                     // ✅ DELEGATED: Use ScannerFeedbackService for feedback
-                    await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, "Invalid data format");
+                    await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, "Invalid PID format");
                 }
             }
         }

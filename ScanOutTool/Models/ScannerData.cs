@@ -15,7 +15,8 @@ namespace ScanOutTool.Models
         public string ErrorMessage { get; set; } = string.Empty;
 
         /// <summary>
-        /// Parse scanner input data in format: PID|slot_qty
+        /// Parse scanner input data in format: PID|data
+        /// Only validates PID part (11 or 22 chars), data part can be anything
         /// </summary>
         public static ScannerData Parse(string rawData)
         {
@@ -37,48 +38,63 @@ namespace ScanOutTool.Models
                 if (!trimmedData.Contains('|'))
                 {
                     // Backward compatibility: treat as PID only
-                    return new ScannerData
+                    if (trimmedData.Length == 11 || trimmedData.Length == 22)
                     {
-                        PID = trimmedData,
-                        SlotQuantity = 0, // Default quantity
-                        RawData = rawData,
-                        IsValid = true,
-                        ErrorMessage = ""
-                    };
+                        return new ScannerData
+                        {
+                            PID = trimmedData,
+                            SlotQuantity = 0, // Default quantity
+                            RawData = rawData,
+                            IsValid = true,
+                            ErrorMessage = ""
+                        };
+                    }
+                    else
+                    {
+                        return new ScannerData
+                        {
+                            RawData = rawData,
+                            IsValid = false,
+                            ErrorMessage = $"Invalid PID length: {trimmedData.Length}. Expected 11 or 22 characters."
+                        };
+                    }
                 }
 
                 var parts = trimmedData.Split('|');
-                if (parts.Length != 2)
+                if (parts.Length < 2)
                 {
                     return new ScannerData
                     {
                         RawData = rawData,
                         IsValid = false,
-                        ErrorMessage = $"Invalid format. Expected: PID|quantity, got: {rawData}"
+                        ErrorMessage = $"Invalid format. Expected: PID|data, got: {rawData}"
                     };
                 }
 
                 var pid = parts[0].Trim();
-                var qtyString = parts[1].Trim();
+                var dataPart = parts[1].Trim();
 
-                if (string.IsNullOrEmpty(pid))
+                // ? SIMPLIFIED: Only validate PID length (11 or 22 chars)
+                if (pid.Length != 11 && pid.Length != 22)
                 {
                     return new ScannerData
                     {
                         RawData = rawData,
                         IsValid = false,
-                        ErrorMessage = "PID cannot be empty"
+                        ErrorMessage = $"Invalid PID length: {pid.Length}. Expected 11 or 22 characters."
                     };
                 }
 
-                if (!int.TryParse(qtyString, out int quantity) || quantity < 0)
+                // ? TRY to parse data part as quantity, but don't fail if it's not numeric
+                int quantity = 0;
+                if (!string.IsNullOrEmpty(dataPart))
                 {
-                    return new ScannerData
+                    // Try to extract numeric part from data (e.g., "14" from "14", "I14", "abc14def")
+                    var numericPart = System.Text.RegularExpressions.Regex.Match(dataPart, @"\d+").Value;
+                    if (!string.IsNullOrEmpty(numericPart))
                     {
-                        RawData = rawData,
-                        IsValid = false,
-                        ErrorMessage = $"Invalid quantity: {qtyString}. Must be a non-negative integer."
-                    };
+                        int.TryParse(numericPart, out quantity);
+                    }
                 }
 
                 return new ScannerData
