@@ -136,6 +136,13 @@ namespace ScanOutTool
             services.AddSingleton<IPLCServiceFactory, PLCServiceFactory>();
             services.AddSingleton<IHMESService, HMESService>(); // ✅ DataExecuter-based HMES service
             
+            // ✅ FIXED: Register IAutoScanOutUI as a service
+            services.AddSingleton<IAutoScanOutUI>(serviceProvider =>
+            {
+                var loggingService = serviceProvider.GetRequiredService<ILoggingService>();
+                return new AutoScanOutUI(loggingService);
+            });
+            
             // ✅ NEW: Workflow orchestration services
             services.AddTransient<SerialDataProcessor>();
             services.AddTransient<ScannerFeedbackService>();

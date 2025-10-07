@@ -31,7 +31,7 @@ namespace ScanOutTool.Services.Orchestration
 
         private SerialProxyManager? _serialProxyManager;
         private IPLCService? _plcService;
-        private IAutoScanOutUI? _autoScanOutUI;
+        private readonly IAutoScanOutUI _autoScanOutUI; // ✅ CHANGED: Inject instead of creating
         private CancellationTokenSource _cancellationTokenSource = new();
         private Task? _serialProxyTask; // ✅ NEW: Track background task
 
@@ -52,7 +52,8 @@ namespace ScanOutTool.Services.Orchestration
             IBlockRFService blockRFService,
             IHMESService hmesService,
             SerialDataProcessor serialDataProcessor,
-            ScannerFeedbackService feedbackService)
+            ScannerFeedbackService feedbackService,
+            IAutoScanOutUI autoScanOutUI) // ✅ CHANGED: Inject IAutoScanOutUI
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _configService = configService ?? throw new ArgumentNullException(nameof(configService));
@@ -61,6 +62,7 @@ namespace ScanOutTool.Services.Orchestration
             _hmesService = hmesService ?? throw new ArgumentNullException(nameof(hmesService));
             _serialDataProcessor = serialDataProcessor ?? throw new ArgumentNullException(nameof(serialDataProcessor));
             _feedbackService = feedbackService ?? throw new ArgumentNullException(nameof(feedbackService));
+            _autoScanOutUI = autoScanOutUI ?? throw new ArgumentNullException(nameof(autoScanOutUI)); // ✅ CHANGED
         }
 
         public async Task<WorkflowResult> StartAsync(CancellationToken cancellationToken = default)
@@ -251,11 +253,11 @@ namespace ScanOutTool.Services.Orchestration
 
                 await Task.WhenAll(stopTasks).ConfigureAwait(false);
 
-                // ✅ NEW: Clean up references
+                // ✅ UPDATED: Clean up references (except injected services)
                 _serialProxyManager = null;
                 _serialProxyTask = null;
                 _plcService = null;
-                _autoScanOutUI = null;
+                // Don't null out _autoScanOutUI - it's an injected dependency
 
                 ChangeStatus(WorkflowStatus.Stopped, "Workflow stopped successfully");
                 _logger.LogInformation("========================= WORKFLOW STOPPED SUCCESSFULLY =========================");
@@ -410,13 +412,7 @@ namespace ScanOutTool.Services.Orchestration
             {
                 _logger.LogInformation("Starting ScanOut UI...");
                 
-                // ✅ Need to get ILoggingService for AutoScanOutUI via constructor injection
-                var serviceProvider = App.Services;
-                var loggingService = serviceProvider.GetRequiredService<ILoggingService>();
-                
-                _autoScanOutUI = new AutoScanOutUI(loggingService);
-                
-                // Test if ScanOut UI is available
+                // ✅ FIXED: Just validate the injected service instead of creating new one
                 if (!_autoScanOutUI.IsScanoutUI())
                 {
                     throw new InvalidOperationException("ScanOut application is not running or not accessible");
