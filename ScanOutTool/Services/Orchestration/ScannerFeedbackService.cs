@@ -70,12 +70,67 @@ namespace ScanOutTool.Services.Orchestration
         }
 
         /// <summary>
-        /// Send NG feedback for blocked or invalid data
+        /// Send feedback to scanner based on scan result with detailed message
+        /// </summary>
+        public async Task SendFeedbackAsync(SerialProxyManager? serialProxyManager, bool isOK, string message = "")
+        {
+            try
+            {
+                var config = _configService.Config;
+                
+                // Check if feedback is enabled
+                if (!config.EnableScannerFeedback)
+                {
+                    _logger.LogDebug("Scanner feedback is disabled in configuration");
+                    return;
+                }
+
+                if (serialProxyManager == null)
+                {
+                    _logger.LogWarning("SerialProxyManager is not initialized, cannot send feedback");
+                    return;
+                }
+
+                // Add configurable delay before sending feedback
+                if (config.FeedbackDelayMs > 0)
+                {
+                    await Task.Delay(config.FeedbackDelayMs);
+                }
+
+                // ? NEW: Use detailed message if provided, otherwise use configured messages
+                string feedbackMessage;
+                if (!string.IsNullOrEmpty(message))
+                {
+                    feedbackMessage = message; // Use detailed message (e.g., "NG|Miss match quantity")
+                }
+                else
+                {
+                    feedbackMessage = isOK ? config.OkFeedbackMessage : config.NgFeedbackMessage;
+                }
+                
+                // Add carriage return for proper serial communication
+                var feedbackData = feedbackMessage + "\r";
+
+                // Send feedback to scanner (device port)
+                await serialProxyManager.SendToDeviceAsync(feedbackData);
+
+                _logger.LogInformation("Sent feedback to scanner: {Feedback} (Result: {Result})", 
+                    feedbackMessage, isOK ? "OK" : "NG");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending feedback to scanner");
+                // Don't throw - feedback failure shouldn't stop the workflow
+            }
+        }
+
+        /// <summary>
+        /// Send NG feedback for blocked or invalid data with reason
         /// </summary>
         public async Task SendNGFeedbackAsync(SerialProxyManager? serialProxyManager, string reason)
         {
             _logger.LogWarning("Sending NG feedback: {Reason}", reason);
-            await SendFeedbackAsync(serialProxyManager, false);
+            await SendFeedbackAsync(serialProxyManager, false, $"NG|{reason}");
         }
     }
 }

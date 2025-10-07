@@ -456,16 +456,20 @@ namespace ScanOutTool.Services.Orchestration
                 // ✅ UPDATED: Send feedback based on HMES result, not scan result
                 if (result.ShouldSendFeedback)
                 {
-                    // ✅ TIMING: Log feedback timing
-                    _logger.LogInformation("Ready to send feedback: {Feedback} (HMES Success: {HMESSuccess}, Scan Success: {ScanSuccess})", 
-                        result.FeedbackResult ? "OK" : "NG", result.HMESSuccess, result.ScanSuccess);
+                    // ✅ TIMING: Log feedback timing with quantity info if available
+                    var feedbackLogMessage = result.ExpectedQuantity > 0 
+                        ? $"Ready to send feedback: {result.FeedbackMessage} (HMES: {result.HMESSuccess}, Scan: {result.ScanSuccess}, Qty Match: {result.QuantityMatch})"
+                        : $"Ready to send feedback: {result.FeedbackMessage} (HMES: {result.HMESSuccess}, Scan: {result.ScanSuccess})";
+                    
+                    _logger.LogInformation(feedbackLogMessage);
                     
                     var feedbackStartTime = DateTime.Now;
-                    await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.FeedbackResult);
+                    // ✅ NEW: Use detailed message from result
+                    await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.FeedbackResult, result.FeedbackMessage);
                     var feedbackDuration = DateTime.Now - feedbackStartTime;
                     
                     _logger.LogInformation("Feedback sent in {Duration}ms: {Feedback} -> Scanner", 
-                        feedbackDuration.TotalMilliseconds, result.FeedbackResult ? "OK" : "NG");
+                        feedbackDuration.TotalMilliseconds, result.FeedbackMessage);
                 }
 
                 // Notify ViewModel with result data
@@ -563,14 +567,51 @@ namespace ScanOutTool.Services.Orchestration
                 e.Cancel = true;
                 _logger.LogInformation("Clear command received");
             }
-            else if (!data.Contains("CLEAR") && !data.Contains("TRACE") && 
-                     e.Data.Trim().Length != 11 && e.Data.Trim().Length != 22)
+            else if (!data.Contains("CLEAR") && !data.Contains("TRACE"))
             {
-                e.Cancel = true;
-                _logger.LogInformation("Invalid data length: {Length}", e.Data.Trim().Length);
-                
-                // ✅ DELEGATED: Use ScannerFeedbackService for feedback
-                await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, "Invalid data length");
+                // ✅ UPDATED: Support new PID|qty format validation
+                var trimmedData = e.Data.Trim();
+                bool isValidFormat = false;
+
+                if (trimmedData.Contains("|"))
+                {
+                    // New format: PID|qty (e.g., "509HS123456|18")
+                    var parts = trimmedData.Split('|');
+                    if (parts.Length == 2)
+                    {
+                        var pid = parts[0].Trim();
+                        var qtyString = parts[1].Trim();
+                        
+                        // Validate PID length (11 or 22 characters) and quantity is numeric
+                        if ((pid.Length == 11 || pid.Length == 22) && 
+                            int.TryParse(qtyString, out int qty) && qty >= 0)
+                        {
+                            isValidFormat = true;
+                            _logger.LogInformation("Valid PID|qty format: PID={PID} ({PIDLength} chars), Qty={Qty}", 
+                                pid, pid.Length, qty);
+                        }
+                    }
+                }
+                else
+                {
+                    // Legacy format: PID only (11 or 22 characters)
+                    if (trimmedData.Length == 11 || trimmedData.Length == 22)
+                    {
+                        isValidFormat = true;
+                        _logger.LogInformation("Valid legacy PID format: {PID} ({Length} chars)", 
+                            trimmedData, trimmedData.Length);
+                    }
+                }
+
+                if (!isValidFormat)
+                {
+                    e.Cancel = true;
+                    _logger.LogInformation("Invalid data format: {Data} (Length: {Length})", 
+                        trimmedData, trimmedData.Length);
+                    
+                    // ✅ DELEGATED: Use ScannerFeedbackService for feedback
+                    await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, "Invalid data format");
+                }
             }
         }
 

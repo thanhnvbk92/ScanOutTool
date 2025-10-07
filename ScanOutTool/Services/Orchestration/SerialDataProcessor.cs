@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using ScanOutTool.Services.Orchestration;
+using ScanOutTool.Models; // ? NEW: For ScannerData
 using System;
 using System.Threading.Tasks;
 
@@ -43,6 +44,17 @@ namespace ScanOutTool.Services.Orchestration
                     return SerialProcessResult.CreateSpecialCommand(sentData);
                 }
 
+                // ? NEW: Parse scanner data (PID|qty format)
+                var scannerData = ScannerData.Parse(sentData);
+                if (!scannerData.IsValid)
+                {
+                    _logger.LogError("Invalid scanner data format: {Error}", scannerData.ErrorMessage);
+                    return SerialProcessResult.CreateError($"Invalid data format: {scannerData.ErrorMessage}");
+                }
+
+                _logger.LogInformation("Parsed scanner data: PID={PID}, SlotQty={SlotQty}", 
+                    scannerData.PID, scannerData.SlotQuantity);
+
                 if (!_autoScanOutUI.IsScanoutUI())
                 {
                     _logger.LogWarning("ScanOut UI not available");
@@ -51,21 +63,21 @@ namespace ScanOutTool.Services.Orchestration
 
                 var config = _configService.Config;
                 
-                // ? NEW: Process based on RunMode with proper feedback timing
+                // ? NEW: Process based on RunMode with quantity validation
                 switch (config.SelectedRunMode)
                 {
                     case AppConfig.RunMode.ScanOutOnly:
-                        return await ProcessScanOutOnlyAsync(sentData);
+                        return await ProcessScanOutOnlyAsync(scannerData);
                         
                     case AppConfig.RunMode.RescanOnly:
-                        return await ProcessRescanOnlyAsync(sentData);
+                        return await ProcessRescanOnlyAsync(scannerData);
                         
                     case AppConfig.RunMode.ScanOut_Rescan:
-                        return await ProcessScanOutAndRescanAsync(sentData);
+                        return await ProcessScanOutAndRescanAsync(scannerData);
                         
                     default:
                         _logger.LogWarning("Unknown RunMode: {RunMode}, defaulting to ScanOut_Rescan", config.SelectedRunMode);
-                        return await ProcessScanOutAndRescanAsync(sentData);
+                        return await ProcessScanOutAndRescanAsync(scannerData);
                 }
             }
             catch (Exception ex)
@@ -78,18 +90,18 @@ namespace ScanOutTool.Services.Orchestration
         /// <summary>
         /// ? NEW: Process ScanOutOnly - Send feedback after database validation
         /// </summary>
-        private async Task<SerialProcessResult> ProcessScanOutOnlyAsync(string sentData)
+        private async Task<SerialProcessResult> ProcessScanOutOnlyAsync(ScannerData scannerData)
         {
             try
             {
                 // Read scan result from ScanOut UI
-                var scanResult = await ReadScanOutResultAsync(sentData);
+                var scanResult = await ReadScanOutResultAsync(scannerData.PID);
                 
                 if (scanResult == null)
                 {
                     // Scan timeout/error
                     return SerialProcessResult.CreateScanResult(
-                        pid: sentData,
+                        pid: scannerData.PID,
                         workOrder: "",
                         partNumber: "",
                         result: "NG",
@@ -97,7 +109,8 @@ namespace ScanOutTool.Services.Orchestration
                         scanSuccess: false,
                         hmesSuccess: false,
                         shouldSendFeedback: true,
-                        feedbackResult: false  // NG feedback
+                        feedbackResult: false,
+                        feedbackMessage: "NG|Scanout NG"
                     );
                 }
 
@@ -111,21 +124,31 @@ namespace ScanOutTool.Services.Orchestration
                 bool hmesSuccess = false;
                 bool shouldSendFeedback = true;
                 bool feedbackResult = false;
+                string feedbackMessage = "OK";
 
                 if (scanResult.Value) // Scan OK
                 {
                     // ? TIMING: Log before HMES operation
-                    _logger.LogInformation("ScanOutOnly: Sending to HMES Database for PID: {PID}", sentData);
+                    _logger.LogInformation("ScanOutOnly: Sending to HMES Database for PID: {PID}", scannerData.PID);
                     var startTime = DateTime.Now;
                     
                     // Send to HMES Database
-                    hmesSuccess = await _hmesService.SendToDatabaseAsync(sentData, workOrder, partNumber, result, message);
+                    hmesSuccess = await _hmesService.SendToDatabaseAsync(scannerData.PID, workOrder, partNumber, result, message);
                     
                     var duration = DateTime.Now - startTime;
                     _logger.LogInformation("ScanOutOnly: HMES Database completed in {Duration}ms, Success: {Success}", 
                         duration.TotalMilliseconds, hmesSuccess);
                     
-                    feedbackResult = hmesSuccess; // Feedback based on HMES result
+                    if (hmesSuccess)
+                    {
+                        feedbackResult = true;
+                        feedbackMessage = "OK";
+                    }
+                    else
+                    {
+                        feedbackResult = false;
+                        feedbackMessage = "NG|Scanout NG";
+                    }
                     
                     // ? SAFEGUARD: Small delay to ensure HMES operations are fully complete
                     if (hmesSuccess)
@@ -136,8 +159,9 @@ namespace ScanOutTool.Services.Orchestration
                 else
                 {
                     // Scan NG - no HMES, feedback NG
-                    _logger.LogInformation("ScanOutOnly: Scan NG for PID: {PID}, skipping HMES", sentData);
+                    _logger.LogInformation("ScanOutOnly: Scan NG for PID: {PID}, skipping HMES", scannerData.PID);
                     feedbackResult = false;
+                    feedbackMessage = "NG|Scanout NG";
                 }
 
                 return SerialProcessResult.CreateScanResult(
@@ -149,7 +173,9 @@ namespace ScanOutTool.Services.Orchestration
                     scanSuccess: scanResult.Value,
                     hmesSuccess: hmesSuccess,
                     shouldSendFeedback: shouldSendFeedback,
-                    feedbackResult: feedbackResult
+                    feedbackResult: feedbackResult,
+                    feedbackMessage: feedbackMessage,
+                    expectedQuantity: scannerData.SlotQuantity
                 );
             }
             catch (Exception ex)
@@ -160,22 +186,58 @@ namespace ScanOutTool.Services.Orchestration
         }
 
         /// <summary>
-        /// ? NEW: Process RescanOnly - Send feedback after HMES Web success
+        /// ? NEW: Process RescanOnly - Send feedback after HMES Web success with quantity validation
         /// </summary>
-        private async Task<SerialProcessResult> ProcessRescanOnlyAsync(string sentData)
+        private async Task<SerialProcessResult> ProcessRescanOnlyAsync(ScannerData scannerData)
         {
             try
             {
                 // ? TIMING: Log before HMES operation
-                _logger.LogInformation("RescanOnly: Sending to HMES Web for PID: {PID}", sentData);
+                _logger.LogInformation("RescanOnly: Sending to HMES Web for PID: {PID}", scannerData.PID);
                 var startTime = DateTime.Now;
                 
                 // For rescan mode, send directly to HMES Web
-                var hmesSuccess = await _hmesService.SendToWebAsync(sentData);
+                var hmesSuccess = await _hmesService.SendToWebAsync(scannerData.PID);
                 
                 var duration = DateTime.Now - startTime;
                 _logger.LogInformation("RescanOnly: HMES Web completed in {Duration}ms, Success: {Success}", 
                     duration.TotalMilliseconds, hmesSuccess);
+
+                // ? NEW: Quantity validation for RescanOnly mode
+                bool quantityMatch = true;
+                int actualQuantity = 0;
+                string feedbackMessage = "OK";
+                bool feedbackResult = hmesSuccess;
+
+                if (hmesSuccess && scannerData.SlotQuantity > 0) // Only check if scanner provided quantity
+                {
+                    try
+                    {
+                        // Get actual quantity from HMES
+                        actualQuantity = await _hmesService.GetPackQtyAsync();
+                        quantityMatch = actualQuantity == scannerData.SlotQuantity;
+                        
+                        _logger.LogInformation("RescanOnly: Quantity check - Expected: {Expected}, Actual: {Actual}, Match: {Match}", 
+                            scannerData.SlotQuantity, actualQuantity, quantityMatch);
+
+                        if (!quantityMatch)
+                        {
+                            feedbackMessage = "NG|Miss match quantity";
+                            feedbackResult = false;
+                            _logger.LogWarning("RescanOnly: Quantity mismatch for PID {PID}", scannerData.PID);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "RescanOnly: Failed to get pack quantity from HMES");
+                        // Continue with original result if quantity check fails
+                    }
+                }
+                else if (!hmesSuccess)
+                {
+                    feedbackMessage = "NG|Scanout NG";
+                    feedbackResult = false;
+                }
 
                 // ? SAFEGUARD: Small delay to ensure HMES operations are fully complete
                 if (hmesSuccess)
@@ -184,10 +246,14 @@ namespace ScanOutTool.Services.Orchestration
                 }
 
                 return SerialProcessResult.CreateRescanResult(
-                    pid: sentData,
+                    pid: scannerData.PID,
                     hmesSuccess: hmesSuccess,
                     shouldSendFeedback: true,
-                    feedbackResult: hmesSuccess  // ? KEY: Feedback based on HMES Web result
+                    feedbackResult: feedbackResult,
+                    feedbackMessage: feedbackMessage,
+                    expectedQuantity: scannerData.SlotQuantity,
+                    actualQuantity: actualQuantity,
+                    quantityMatch: quantityMatch
                 );
             }
             catch (Exception ex)
@@ -198,20 +264,20 @@ namespace ScanOutTool.Services.Orchestration
         }
 
         /// <summary>
-        /// ? NEW: Process ScanOut + Rescan - Send feedback after both operations complete
+        /// ? NEW: Process ScanOut + Rescan - Send feedback after both operations complete with quantity validation
         /// </summary>
-        private async Task<SerialProcessResult> ProcessScanOutAndRescanAsync(string sentData)
+        private async Task<SerialProcessResult> ProcessScanOutAndRescanAsync(ScannerData scannerData)
         {
             try
             {
                 // Read scan result from ScanOut UI
-                var scanResult = await ReadScanOutResultAsync(sentData);
+                var scanResult = await ReadScanOutResultAsync(scannerData.PID);
                 
                 if (scanResult == null)
                 {
                     // Scan timeout/error
                     return SerialProcessResult.CreateScanResult(
-                        pid: sentData,
+                        pid: scannerData.PID,
                         workOrder: "",
                         partNumber: "",
                         result: "NG",
@@ -219,7 +285,8 @@ namespace ScanOutTool.Services.Orchestration
                         scanSuccess: false,
                         hmesSuccess: false,
                         shouldSendFeedback: true,
-                        feedbackResult: false
+                        feedbackResult: false,
+                        feedbackMessage: "NG|Scanout NG"
                     );
                 }
 
@@ -232,21 +299,62 @@ namespace ScanOutTool.Services.Orchestration
                 bool hmesSuccess = false;
                 bool shouldSendFeedback = true;
                 bool feedbackResult = false;
+                string feedbackMessage = "OK";
+                bool quantityMatch = true;
+                int actualQuantity = 0;
 
                 if (scanResult.Value) // Scan OK
                 {
                     // ? TIMING: Log before HMES operation
-                    _logger.LogInformation("ScanOut_Rescan: Sending to HMES Database+Web for PID: {PID}", sentData);
+                    _logger.LogInformation("ScanOut_Rescan: Sending to HMES Database+Web for PID: {PID}", scannerData.PID);
                     var startTime = DateTime.Now;
                     
                     // Send to both Database and Web
-                    hmesSuccess = await _hmesService.SendToDatabaseAndWebAsync(sentData, workOrder, partNumber, result, message);
+                    hmesSuccess = await _hmesService.SendToDatabaseAndWebAsync(scannerData.PID, workOrder, partNumber, result, message);
                     
                     var duration = DateTime.Now - startTime;
                     _logger.LogInformation("ScanOut_Rescan: HMES Database+Web completed in {Duration}ms, Success: {Success}", 
                         duration.TotalMilliseconds, hmesSuccess);
                     
-                    feedbackResult = hmesSuccess; // ? KEY: Feedback based on both DB + Web result
+                    // ? NEW: Quantity validation for ScanOut_Rescan mode
+                    if (hmesSuccess && scannerData.SlotQuantity > 0) // Only check if scanner provided quantity
+                    {
+                        try
+                        {
+                            // Get actual quantity from HMES
+                            actualQuantity = await _hmesService.GetPackQtyAsync();
+                            quantityMatch = actualQuantity == scannerData.SlotQuantity;
+                                                
+                            _logger.LogInformation("ScanOut_Rescan: Quantity check - Expected: {Expected}, Actual: {Actual}, Match: {Match}", 
+                                scannerData.SlotQuantity, actualQuantity, quantityMatch);
+
+                            if (!quantityMatch)
+                            {
+                                feedbackMessage = "NG|Miss match quantity";
+                                feedbackResult = false;
+                                _logger.LogWarning("ScanOut_Rescan: Quantity mismatch for PID {PID}", scannerData.PID);
+                            }
+                            else
+                            {
+                                feedbackResult = true; // Both HMES and quantity OK
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "ScanOut_Rescan: Failed to get pack quantity from HMES");
+                            // Continue with HMES result if quantity check fails
+                            feedbackResult = hmesSuccess;
+                        }
+                    }
+                    else if (hmesSuccess)
+                    {
+                        feedbackResult = true; // HMES OK, no quantity to check
+                    }
+                    else
+                    {
+                        feedbackMessage = "NG|Scanout NG";
+                        feedbackResult = false;
+                    }
                     
                     // ? SAFEGUARD: Small delay to ensure HMES operations are fully complete
                     if (hmesSuccess)
@@ -257,7 +365,8 @@ namespace ScanOutTool.Services.Orchestration
                 else
                 {
                     // Scan NG - no HMES, feedback NG
-                    _logger.LogInformation("ScanOut_Rescan: Scan NG for PID: {PID}, skipping HMES", sentData);
+                    _logger.LogInformation("ScanOut_Rescan: Scan NG for PID: {PID}, skipping HMES", scannerData.PID);
+                    feedbackMessage = "NG|Scanout NG";
                     feedbackResult = false;
                 }
 
@@ -270,7 +379,11 @@ namespace ScanOutTool.Services.Orchestration
                     scanSuccess: scanResult.Value,
                     hmesSuccess: hmesSuccess,
                     shouldSendFeedback: shouldSendFeedback,
-                    feedbackResult: feedbackResult
+                    feedbackResult: feedbackResult,
+                    feedbackMessage: feedbackMessage,
+                    expectedQuantity: scannerData.SlotQuantity,
+                    actualQuantity: actualQuantity,
+                    quantityMatch: quantityMatch
                 );
             }
             catch (Exception ex)
@@ -383,9 +496,15 @@ namespace ScanOutTool.Services.Orchestration
         public bool ScanSuccess { get; set; }
         public bool HMESSuccess { get; set; }
         
-        // ? NEW: Feedback control
+        // ? NEW: Feedback control with detailed messages
         public bool ShouldSendFeedback { get; set; }
         public bool FeedbackResult { get; set; } // True = OK, False = NG
+        public string FeedbackMessage { get; set; } = "OK"; // "OK", "NG|Scanout NG", "NG|Miss match quantity"
+        
+        // ? NEW: Quantity validation
+        public int ExpectedQuantity { get; set; } // From scanner
+        public int ActualQuantity { get; set; } // From HMES
+        public bool QuantityMatch { get; set; } = true;
         
         // Scan data
         public string PID { get; set; } = string.Empty;
@@ -396,7 +515,8 @@ namespace ScanOutTool.Services.Orchestration
 
         public static SerialProcessResult CreateScanResult(string pid, string workOrder, string partNumber, 
             string result, string message, bool scanSuccess, bool hmesSuccess, 
-            bool shouldSendFeedback = false, bool feedbackResult = false)
+            bool shouldSendFeedback = false, bool feedbackResult = false, string feedbackMessage = "OK",
+            int expectedQuantity = 0, int actualQuantity = 0, bool quantityMatch = true)
         {
             return new SerialProcessResult
             {
@@ -405,6 +525,10 @@ namespace ScanOutTool.Services.Orchestration
                 HMESSuccess = hmesSuccess,
                 ShouldSendFeedback = shouldSendFeedback,
                 FeedbackResult = feedbackResult,
+                FeedbackMessage = feedbackMessage,
+                ExpectedQuantity = expectedQuantity,
+                ActualQuantity = actualQuantity,
+                QuantityMatch = quantityMatch,
                 PID = pid,
                 WorkOrder = workOrder,
                 PartNumber = partNumber,
@@ -414,7 +538,8 @@ namespace ScanOutTool.Services.Orchestration
         }
 
         public static SerialProcessResult CreateRescanResult(string pid, bool hmesSuccess, 
-            bool shouldSendFeedback = false, bool feedbackResult = false)
+            bool shouldSendFeedback = false, bool feedbackResult = false, string feedbackMessage = "OK",
+            int expectedQuantity = 0, int actualQuantity = 0, bool quantityMatch = true)
         {
             return new SerialProcessResult
             {
@@ -423,6 +548,10 @@ namespace ScanOutTool.Services.Orchestration
                 HMESSuccess = hmesSuccess,
                 ShouldSendFeedback = shouldSendFeedback,
                 FeedbackResult = feedbackResult,
+                FeedbackMessage = feedbackMessage,
+                ExpectedQuantity = expectedQuantity,
+                ActualQuantity = actualQuantity,
+                QuantityMatch = quantityMatch,
                 PID = pid,
                 Result = "OK",
                 Message = "Rescan completed"
@@ -436,6 +565,7 @@ namespace ScanOutTool.Services.Orchestration
                 Success = true,
                 IsSpecialCommand = true,
                 ShouldSendFeedback = false,
+                FeedbackMessage = "OK",
                 Message = $"Special command: {command}"
             };
         }
@@ -447,7 +577,8 @@ namespace ScanOutTool.Services.Orchestration
                 Success = false,
                 ErrorMessage = errorMessage,
                 ShouldSendFeedback = true,
-                FeedbackResult = false // NG feedback for errors
+                FeedbackResult = false, // NG feedback for errors
+                FeedbackMessage = "NG|Processing error"
             };
         }
     }
