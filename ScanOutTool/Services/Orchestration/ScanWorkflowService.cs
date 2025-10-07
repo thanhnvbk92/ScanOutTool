@@ -569,51 +569,74 @@ namespace ScanOutTool.Services.Orchestration
             }
             else if (!data.Contains("CLEAR") && !data.Contains("TRACE"))
             {
-                // ✅ SIMPLIFIED: Only validate PID part (before "|") has 11 or 22 characters
+                // ✅ ENHANCED: More detailed logging for validation
                 var trimmedData = e.Data.Trim();
                 bool isValidFormat = false;
+                string validationDetail = "";
+
+                _logger.LogInformation("Validating data: '{Data}' (Length: {Length})", trimmedData, trimmedData.Length);
 
                 if (trimmedData.Contains("|"))
                 {
-                    // New format: PID|anything (e.g., "509HS123456|18", "11111111119I|14")
+                    // Format: PID|anything (e.g., "509HS123456|18")
                     var pidPart = trimmedData.Split('|')[0].Trim();
+                    validationDetail = $"PID|data format - PID='{pidPart}' (Length: {pidPart.Length})";
                     
-                    // ✅ Only check PID length (11 or 22 characters)
+                    // Only check PID length (11 or 22 characters)
                     if (pidPart.Length == 11 || pidPart.Length == 22)
                     {
                         isValidFormat = true;
-                        _logger.LogInformation("Valid PID|data format: PID={PID} ({PIDLength} chars)", 
-                            pidPart, pidPart.Length);
+                        _logger.LogInformation("✅ VALID: {ValidationDetail}", validationDetail);
                     }
                     else
                     {
-                        _logger.LogInformation("Invalid PID length in PID|data format: PID={PID} ({PIDLength} chars), expected 11 or 22", 
-                            pidPart, pidPart.Length);
+                        _logger.LogInformation("❌ INVALID: {ValidationDetail} - Expected 11 or 22 chars", validationDetail);
                     }
                 }
                 else
                 {
                     // Legacy format: PID only (11 or 22 characters)
+                    validationDetail = $"Legacy PID format - PID='{trimmedData}' (Length: {trimmedData.Length})";
+                    
                     if (trimmedData.Length == 11 || trimmedData.Length == 22)
                     {
                         isValidFormat = true;
-                        _logger.LogInformation("Valid legacy PID format: {PID} ({Length} chars)", 
-                            trimmedData, trimmedData.Length);
+                        _logger.LogInformation("✅ VALID: {ValidationDetail}", validationDetail);
                     }
                     else
                     {
-                        _logger.LogInformation("Invalid legacy PID length: {PID} ({Length} chars), expected 11 or 22", 
-                            trimmedData, trimmedData.Length);
+                        _logger.LogInformation("❌ INVALID: {ValidationDetail} - Expected 11 or 22 chars", validationDetail);
+                        
+                        // ✅ ENHANCED: Check if this could be PID + suffix format
+                        if (trimmedData.Length > 11)
+                        {
+                            var possiblePid11 = trimmedData.Substring(0, 11);
+                            var suffix = trimmedData.Substring(11);
+                            _logger.LogInformation("🔍 ANALYSIS: Could be PID(11)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
+                                possiblePid11, suffix);
+                        }
+                        
+                        if (trimmedData.Length > 22)
+                        {
+                            var possiblePid22 = trimmedData.Substring(0, 22);
+                            var suffix = trimmedData.Substring(22);
+                            _logger.LogInformation("🔍 ANALYSIS: Could be PID(22)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
+                                possiblePid22, suffix);
+                        }
                     }
                 }
 
                 if (!isValidFormat)
                 {
                     e.Cancel = true;
-                    _logger.LogInformation("Blocking invalid data: {Data}", trimmedData);
+                    _logger.LogInformation("🚫 BLOCKING: Data validation failed - {ValidationDetail}", validationDetail);
                     
                     // ✅ DELEGATED: Use ScannerFeedbackService for feedback
                     await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, "Invalid PID format");
+                }
+                else
+                {
+                    _logger.LogInformation("✅ ALLOWING: Data validation passed - {ValidationDetail}", validationDetail);
                 }
             }
         }
