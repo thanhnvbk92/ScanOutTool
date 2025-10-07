@@ -97,7 +97,7 @@ namespace ScanOutTool.Services.Orchestration
                     await Task.Delay(config.FeedbackDelayMs);
                 }
 
-                // ? NEW: Use detailed message if provided, otherwise use configured messages
+                // NEW: Use detailed message if provided, otherwise use configured messages
                 string feedbackMessage;
                 if (!string.IsNullOrEmpty(message))
                 {

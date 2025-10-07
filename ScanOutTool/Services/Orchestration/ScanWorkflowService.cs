@@ -569,7 +569,7 @@ namespace ScanOutTool.Services.Orchestration
             }
             else if (!data.Contains("CLEAR") && !data.Contains("TRACE"))
             {
-                // ✅ ENHANCED: More detailed logging for validation
+                // Enhanced: More detailed logging for validation
                 var trimmedData = e.Data.Trim();
                 bool isValidFormat = false;
                 string validationDetail = "";
@@ -586,11 +586,11 @@ namespace ScanOutTool.Services.Orchestration
                     if (pidPart.Length == 11 || pidPart.Length == 22)
                     {
                         isValidFormat = true;
-                        _logger.LogInformation("✅ VALID: {ValidationDetail}", validationDetail);
+                        _logger.LogInformation("VALID: {ValidationDetail}", validationDetail);
                     }
                     else
                     {
-                        _logger.LogInformation("❌ INVALID: {ValidationDetail} - Expected 11 or 22 chars", validationDetail);
+                        _logger.LogInformation("INVALID: {ValidationDetail} - Expected 11 or 22 chars", validationDetail);
                     }
                 }
                 else
@@ -602,48 +602,48 @@ namespace ScanOutTool.Services.Orchestration
                     {
                         // Standard PID format
                         isValidFormat = true;
-                        _logger.LogInformation("✅ VALID: Standard PID format - {ValidationDetail}", validationDetail);
+                        _logger.LogInformation("VALID: Standard PID format - {ValidationDetail}", validationDetail);
                     }
                     else if (trimmedData.Length > 11)
                     {
-                        // ✅ NEW: Support PID(11)+suffix format
+                        // NEW: Support PID(11)+suffix format
                         var possiblePid11 = trimmedData.Substring(0, 11);
                         var suffix = trimmedData.Substring(11);
                         
                         // Accept if first 11 chars look like valid PID
                         isValidFormat = true;
-                        _logger.LogInformation("✅ VALID: PID(11)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
+                        _logger.LogInformation("VALID: PID(11)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
                             possiblePid11, suffix);
                         validationDetail = $"PID(11)+suffix format - PID='{possiblePid11}', Suffix='{suffix}'";
                     }
                     else if (trimmedData.Length > 22)
                     {
-                        // ✅ NEW: Support PID(22)+suffix format  
+                        // NEW: Support PID(22)+suffix format  
                         var possiblePid22 = trimmedData.Substring(0, 22);
                         var suffix = trimmedData.Substring(22);
                         
                         isValidFormat = true;
-                        _logger.LogInformation("✅ VALID: PID(22)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
+                        _logger.LogInformation("VALID: PID(22)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
                             possiblePid22, suffix);
                         validationDetail = $"PID(22)+suffix format - PID='{possiblePid22}', Suffix='{suffix}'";
                     }
                     else
                     {
-                        _logger.LogInformation("❌ INVALID: {ValidationDetail} - Too short (< 11 chars)", validationDetail);
+                        _logger.LogInformation("INVALID: {ValidationDetail} - Too short (< 11 chars)", validationDetail);
                     }
                 }
 
                 if (!isValidFormat)
                 {
                     e.Cancel = true;
-                    _logger.LogInformation("🚫 BLOCKING: Data validation failed - {ValidationDetail}", validationDetail);
+                    _logger.LogInformation("BLOCKING: Data validation failed - {ValidationDetail}", validationDetail);
                     
-                    // ✅ DELEGATED: Use ScannerFeedbackService for feedback
+                    // Use ScannerFeedbackService for feedback
                     await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, "Invalid PID format");
                 }
                 else
                 {
-                    _logger.LogInformation("✅ ALLOWING: Data validation passed - {ValidationDetail}", validationDetail);
+                    _logger.LogInformation("ALLOWING: Data validation passed - {ValidationDetail}", validationDetail);
                 }
             }
         }
