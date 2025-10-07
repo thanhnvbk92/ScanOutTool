@@ -37,13 +37,60 @@ namespace ScanOutTool.Models
                 // Check if data contains pipe separator
                 if (!trimmedData.Contains('|'))
                 {
-                    // Backward compatibility: treat as PID only
+                    // ? ENHANCED: Support multiple legacy formats
                     if (trimmedData.Length == 11 || trimmedData.Length == 22)
                     {
+                        // Standard PID format (11 or 22 chars)
                         return new ScannerData
                         {
                             PID = trimmedData,
-                            SlotQuantity = 0, // Default quantity
+                            SlotQuantity = 0,
+                            RawData = rawData,
+                            IsValid = true,
+                            ErrorMessage = ""
+                        };
+                    }
+                    else if (trimmedData.Length > 11)
+                    {
+                        // ? NEW: PID(11)+suffix format (e.g., "12345678901I14")
+                        var pidPart = trimmedData.Substring(0, 11);
+                        var suffixPart = trimmedData.Substring(11);
+                        
+                        // Try to extract quantity from suffix
+                        int quantityValue = 0;
+                        var numericPart = System.Text.RegularExpressions.Regex.Match(suffixPart, @"\d+").Value;
+                        if (!string.IsNullOrEmpty(numericPart))
+                        {
+                            int.TryParse(numericPart, out quantityValue);
+                        }
+                        
+                        return new ScannerData
+                        {
+                            PID = pidPart,
+                            SlotQuantity = quantityValue,
+                            RawData = rawData,
+                            IsValid = true,
+                            ErrorMessage = ""
+                        };
+                    }
+                    else if (trimmedData.Length > 22)
+                    {
+                        // ? NEW: PID(22)+suffix format
+                        var pidPart22 = trimmedData.Substring(0, 22);
+                        var suffixPart22 = trimmedData.Substring(22);
+                        
+                        // Try to extract quantity from suffix
+                        int quantityValue22 = 0;
+                        var numericPart22 = System.Text.RegularExpressions.Regex.Match(suffixPart22, @"\d+").Value;
+                        if (!string.IsNullOrEmpty(numericPart22))
+                        {
+                            int.TryParse(numericPart22, out quantityValue22);
+                        }
+                        
+                        return new ScannerData
+                        {
+                            PID = pidPart22,
+                            SlotQuantity = quantityValue22,
                             RawData = rawData,
                             IsValid = true,
                             ErrorMessage = ""
@@ -55,7 +102,7 @@ namespace ScanOutTool.Models
                         {
                             RawData = rawData,
                             IsValid = false,
-                            ErrorMessage = $"Invalid PID length: {trimmedData.Length}. Expected 11 or 22 characters."
+                            ErrorMessage = $"Invalid data length: {trimmedData.Length}. Expected >= 11 characters."
                         };
                     }
                 }

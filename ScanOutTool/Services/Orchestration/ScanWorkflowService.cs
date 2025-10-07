@@ -595,34 +595,41 @@ namespace ScanOutTool.Services.Orchestration
                 }
                 else
                 {
-                    // Legacy format: PID only (11 or 22 characters)
-                    validationDetail = $"Legacy PID format - PID='{trimmedData}' (Length: {trimmedData.Length})";
+                    // Legacy format: PID only OR PID+suffix
+                    validationDetail = $"Legacy format - Data='{trimmedData}' (Length: {trimmedData.Length})";
                     
                     if (trimmedData.Length == 11 || trimmedData.Length == 22)
                     {
+                        // Standard PID format
                         isValidFormat = true;
-                        _logger.LogInformation("✅ VALID: {ValidationDetail}", validationDetail);
+                        _logger.LogInformation("✅ VALID: Standard PID format - {ValidationDetail}", validationDetail);
+                    }
+                    else if (trimmedData.Length > 11)
+                    {
+                        // ✅ NEW: Support PID(11)+suffix format
+                        var possiblePid11 = trimmedData.Substring(0, 11);
+                        var suffix = trimmedData.Substring(11);
+                        
+                        // Accept if first 11 chars look like valid PID
+                        isValidFormat = true;
+                        _logger.LogInformation("✅ VALID: PID(11)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
+                            possiblePid11, suffix);
+                        validationDetail = $"PID(11)+suffix format - PID='{possiblePid11}', Suffix='{suffix}'";
+                    }
+                    else if (trimmedData.Length > 22)
+                    {
+                        // ✅ NEW: Support PID(22)+suffix format  
+                        var possiblePid22 = trimmedData.Substring(0, 22);
+                        var suffix = trimmedData.Substring(22);
+                        
+                        isValidFormat = true;
+                        _logger.LogInformation("✅ VALID: PID(22)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
+                            possiblePid22, suffix);
+                        validationDetail = $"PID(22)+suffix format - PID='{possiblePid22}', Suffix='{suffix}'";
                     }
                     else
                     {
-                        _logger.LogInformation("❌ INVALID: {ValidationDetail} - Expected 11 or 22 chars", validationDetail);
-                        
-                        // ✅ ENHANCED: Check if this could be PID + suffix format
-                        if (trimmedData.Length > 11)
-                        {
-                            var possiblePid11 = trimmedData.Substring(0, 11);
-                            var suffix = trimmedData.Substring(11);
-                            _logger.LogInformation("🔍 ANALYSIS: Could be PID(11)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
-                                possiblePid11, suffix);
-                        }
-                        
-                        if (trimmedData.Length > 22)
-                        {
-                            var possiblePid22 = trimmedData.Substring(0, 22);
-                            var suffix = trimmedData.Substring(22);
-                            _logger.LogInformation("🔍 ANALYSIS: Could be PID(22)+suffix format - PID='{PossiblePid}', Suffix='{Suffix}'", 
-                                possiblePid22, suffix);
-                        }
+                        _logger.LogInformation("❌ INVALID: {ValidationDetail} - Too short (< 11 chars)", validationDetail);
                     }
                 }
 
