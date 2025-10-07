@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ScanOutTool.Services.Orchestration;
 using System;
@@ -12,7 +12,7 @@ using SerialProxyLib;
 namespace ScanOutTool.Services.Orchestration
 {
     /// <summary>
-    /// Implementation c?a ScanWorkflowService - t�ch to�n b? business logic ra kh?i ViewModel
+    /// Implementation của ScanWorkflowService - tách toàn bộ business logic ra khỏi ViewModel
     /// </summary>
     public class ScanWorkflowService : IScanWorkflowService
     {
@@ -25,7 +25,7 @@ namespace ScanOutTool.Services.Orchestration
         private IPLCService? _plcService;
         private IAutoScanOutUI? _autoScanOutUI;
         private CancellationTokenSource _cancellationTokenSource = new();
-        private Task? _serialProxyTask; // ? NEW: Track background task
+        private Task? _serialProxyTask; // ✅ NEW: Track background task
 
         private WorkflowStatus _currentStatus = WorkflowStatus.Stopped;
         private bool _disposed;
@@ -51,7 +51,7 @@ namespace ScanOutTool.Services.Orchestration
 
         public async Task<WorkflowResult> StartAsync(CancellationToken cancellationToken = default)
         {
-            // ? IMPROVED: Better state checking and reset on error
+            // ✅ IMPROVED: Better state checking and reset on error
             if (_currentStatus == WorkflowStatus.Starting)
             {
                 return WorkflowResult.CreateFailure("Workflow is currently starting, please wait");
@@ -62,7 +62,7 @@ namespace ScanOutTool.Services.Orchestration
                 return WorkflowResult.CreateFailure("Workflow is already running");
             }
 
-            // ? IMPROVED: Reset error state to allow retry
+            // ✅ IMPROVED: Reset error state to allow retry
             if (_currentStatus == WorkflowStatus.Error)
             {
                 _logger.LogInformation("Resetting workflow from error state to allow retry");
@@ -74,7 +74,7 @@ namespace ScanOutTool.Services.Orchestration
                 return WorkflowResult.CreateFailure($"Cannot start workflow from current state: {_currentStatus}");
             }
 
-            // ? NEW: Reset cancellation token for fresh start
+            // ✅ NEW: Reset cancellation token for fresh start
             if (_cancellationTokenSource.IsCancellationRequested)
             {
                 _cancellationTokenSource.Dispose();
@@ -90,7 +90,7 @@ namespace ScanOutTool.Services.Orchestration
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken, _cancellationTokenSource.Token);
 
-                // ? IMPROVED: Start services one by one with detailed error reporting
+                // ✅ IMPROVED: Start services one by one with detailed error reporting
                 var startupResults = new List<(string Service, bool Success, string Error)>();
 
                 // Start Serial Proxy
@@ -107,7 +107,7 @@ namespace ScanOutTool.Services.Orchestration
                     startupResults.Add(("SerialProxy", false, error));
                     _logger.LogError("[1/3] Serial Proxy Service: FAILED - {Error}", error);
                     
-                    // ? IMPROVED: Reset to stopped state on failure
+                    // ✅ IMPROVED: Reset to stopped state on failure
                     ChangeStatus(WorkflowStatus.Stopped, "Failed to start - ready for retry");
                     throw new InvalidOperationException(error, ex);
                 }
@@ -126,7 +126,7 @@ namespace ScanOutTool.Services.Orchestration
                     startupResults.Add(("PLC", false, error));
                     _logger.LogError("[2/3] PLC Service: FAILED - {Error}", error);
                     
-                    // ? IMPROVED: PLC is always optional now, just log the failure
+                    // ✅ IMPROVED: PLC is always optional now, just log the failure
                     _logger.LogWarning("[2/3] PLC Service failed but continuing (PLC is optional)");
                 }
 
@@ -144,7 +144,7 @@ namespace ScanOutTool.Services.Orchestration
                     startupResults.Add(("ScanOutUI", false, error));
                     _logger.LogError("[3/3] ScanOut UI Service: FAILED - {Error}", error);
                     
-                    // ? IMPROVED: Reset to stopped state on failure
+                    // ✅ IMPROVED: Reset to stopped state on failure
                     ChangeStatus(WorkflowStatus.Stopped, "Failed to start - ready for retry");
                     throw new InvalidOperationException(error, ex);
                 }
@@ -179,7 +179,7 @@ namespace ScanOutTool.Services.Orchestration
                 }
                 _logger.LogError("==============================================================================");
                 
-                // ? IMPROVED: Set to stopped state instead of error to allow retry
+                // ✅ IMPROVED: Set to stopped state instead of error to allow retry
                 ChangeStatus(WorkflowStatus.Stopped, "Startup failed - ready for retry");
                 return WorkflowResult.CreateFailure($"Failed to start workflow: {ex.Message}", ex);
             }
@@ -197,7 +197,7 @@ namespace ScanOutTool.Services.Orchestration
                 _logger.LogInformation("=========================== STOPPING WORKFLOW ===========================");
                 ChangeStatus(WorkflowStatus.Stopping, "Stopping workflow...");
 
-                // ? IMPROVED: Cancel internal operations
+                // ✅ IMPROVED: Cancel internal operations
                 _cancellationTokenSource.Cancel();
 
                 // Stop services
@@ -214,7 +214,7 @@ namespace ScanOutTool.Services.Orchestration
 
                 await Task.WhenAll(stopTasks).ConfigureAwait(false);
 
-                // ? NEW: Clean up references
+                // ✅ NEW: Clean up references
                 _serialProxyManager = null;
                 _serialProxyTask = null;
                 _plcService = null;
@@ -239,7 +239,7 @@ namespace ScanOutTool.Services.Orchestration
             {
                 _logger.LogInformation("StartSerialProxyAsync: Method entered");
                 
-                // ? NEW: Stop existing proxy if running
+                // ✅ NEW: Stop existing proxy if running
                 if (_serialProxyManager != null)
                 {
                     _logger.LogInformation("StartSerialProxyAsync: Stopping existing proxy...");
@@ -262,7 +262,7 @@ namespace ScanOutTool.Services.Orchestration
                     throw new InvalidOperationException($"COM ports not selected. Device: {comDevice.SelectedPort}, App: {comApp.SelectedPort}");
                 }
 
-                // ? NEW: Validate COM ports exist before starting
+                // ✅ NEW: Validate COM ports exist before starting
                 _logger.LogInformation("StartSerialProxyAsync: Checking available COM ports...");
                 var availablePorts = System.IO.Ports.SerialPort.GetPortNames();
                 if (!availablePorts.Contains(comDevice.SelectedPort))
@@ -276,7 +276,7 @@ namespace ScanOutTool.Services.Orchestration
 
                 _logger.LogInformation("StartSerialProxyAsync: Creating SerialProxyManager...");
                 
-                // ? Need to get ILoggingService for SerialProxyManager via constructor injection
+                // ✅ Need to get ILoggingService for SerialProxyManager via constructor injection
                 var serviceProvider = App.Services;
                 var loggingService = serviceProvider.GetRequiredService<ILoggingService>();
                 
@@ -291,7 +291,7 @@ namespace ScanOutTool.Services.Orchestration
 
                 _logger.LogInformation("StartSerialProxyAsync: About to call StartProxy...");
                 
-                // ? FIXED: Use internal cancellation token instead of passed token for initialization delay
+                // ✅ FIXED: Use internal cancellation token instead of passed token for initialization delay
                 _serialProxyTask = Task.Run(async () =>
                 {
                     try
@@ -311,7 +311,7 @@ namespace ScanOutTool.Services.Orchestration
                     }
                 });
 
-                // ? Give it a moment to initialize - use internal token
+                // ✅ Give it a moment to initialize - use internal token
                 await Task.Delay(500, _cancellationTokenSource.Token);
 
                 _logger.LogInformation("StartSerialProxyAsync: StartProxy started in background");
@@ -328,7 +328,7 @@ namespace ScanOutTool.Services.Orchestration
         {
             var config = _configService.Config;
             
-            // ? NEW: Check if PLC is enabled
+            // ✅ NEW: Check if PLC is enabled
             if (!config.UsePLC)
             {
                 _logger.LogInformation("PLC Service skipped (Use PLC disabled)");
@@ -373,7 +373,7 @@ namespace ScanOutTool.Services.Orchestration
             {
                 _logger.LogInformation("Starting ScanOut UI...");
                 
-                // ? Need to get ILoggingService for AutoScanOutUI via constructor injection
+                // ✅ Need to get ILoggingService for AutoScanOutUI via constructor injection
                 var serviceProvider = App.Services;
                 var loggingService = serviceProvider.GetRequiredService<ILoggingService>();
                 
@@ -398,7 +398,7 @@ namespace ScanOutTool.Services.Orchestration
         {
             try
             {
-                // Move complex business logic t? ViewModel v�o ?�y
+                // Move complex business logic từ ViewModel vào đây
                 if (sentData.Contains("CLEAR") || sentData.Contains("TRACE"))
                 {
                     return true;
@@ -414,7 +414,7 @@ namespace ScanOutTool.Services.Orchestration
                 
                 if (scanResult != null)
                 {
-                    // ? NEW: Send feedback to scanner based on result
+                    // ✅ NEW: Send feedback to scanner based on result
                     await SendFeedbackToScannerAsync(scanResult.Value).ConfigureAwait(false);
 
                     // Notify ViewModel through event
@@ -444,7 +444,7 @@ namespace ScanOutTool.Services.Orchestration
         }
 
         /// <summary>
-        /// ? NEW: Send feedback to scanner port based on scan result
+        /// ✅ NEW: Send feedback to scanner port based on scan result
         /// </summary>
         private async Task SendFeedbackToScannerAsync(bool isOK)
         {
@@ -496,7 +496,7 @@ namespace ScanOutTool.Services.Orchestration
         }
 
         /// <summary>
-        /// ? NEW: Send data directly to device port (scanner)
+        /// ✅ NEW: Send data directly to device port (scanner)
         /// </summary>
         private async Task SendToDevicePortAsync(string data)
         {
@@ -534,7 +534,7 @@ namespace ScanOutTool.Services.Orchestration
                     {
                         e.Cancel = true;
                         
-                        // ? IMPROVED: Send NG feedback when blocked
+                        // ✅ IMPROVED: Send NG feedback when blocked
                         await SendFeedbackToScannerAsync(false).ConfigureAwait(false);
                         
                         ErrorOccurred?.Invoke(this, new ErrorOccurredEventArgs
@@ -589,13 +589,13 @@ namespace ScanOutTool.Services.Orchestration
                 e.Cancel = true;
                 _logger.LogInformation("Invalid data length: {Length}", e.Data.Trim().Length);
                 
-                // ? IMPROVED: Send NG feedback for invalid data
+                // ✅ IMPROVED: Send NG feedback for invalid data
                 await SendFeedbackToScannerAsync(false).ConfigureAwait(false);
             }
         }
 
         /// <summary>
-        /// ? IMPROVED: Return nullable bool to indicate success/failure/timeout
+        /// ✅ IMPROVED: Return nullable bool to indicate success/failure/timeout
         /// </summary>
         private async Task<bool?> ReadScanOutResultAsync(string pid)
         {
@@ -620,6 +620,12 @@ namespace ScanOutTool.Services.Orchestration
 
                 if (_autoScanOutUI.ReadPID().Contains("PLZ Read below Message and Clear") && 
                     _autoScanOutUI.ReadMessage().Contains(cleanPid))
+                {
+                    _logger.LogInformation("Scan failed for PID {PID}: {Message}", cleanPid, _autoScanOutUI.ReadMessage());
+                    return false;
+                }
+
+                if (_autoScanOutUI.ReadMessage().Contains($"Scan Data : [{cleanPid}]") )
                 {
                     _logger.LogInformation("Scan failed for PID {PID}: {Message}", cleanPid, _autoScanOutUI.ReadMessage());
                     return false;
