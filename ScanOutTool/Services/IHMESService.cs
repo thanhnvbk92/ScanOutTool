@@ -3,12 +3,23 @@ using System.Threading.Tasks;
 namespace ScanOutTool.Services
 {
     /// <summary>
+    /// HMES integration modes
+    /// </summary>
+    public enum HMESIntegrationMode
+    {
+        DatabaseOnly,       // For ScanOutOnly
+        WebOnly,           // For RescanOnly  
+        DatabaseAndWeb     // For ScanOut_Rescan
+    }
+
+    /// <summary>
     /// Interface for HMES (Hyundai Manufacturing Execution System) integration
+    /// Provides separate methods for different integration types
     /// </summary>
     public interface IHMESService
     {
         /// <summary>
-        /// Send scan data to HMES system
+        /// Send data to HMES Database only (for ScanOutOnly mode)
         /// </summary>
         /// <param name="pid">Product ID</param>
         /// <param name="workOrder">Work Order</param>
@@ -16,14 +27,25 @@ namespace ScanOutTool.Services
         /// <param name="result">Scan result (OK/NG)</param>
         /// <param name="message">Additional message</param>
         /// <returns>True if successful, false otherwise</returns>
-        Task<bool> SendScanDataAsync(string pid, string workOrder, string partNumber, string result, string message);
+        Task<bool> SendToDatabaseAsync(string pid, string workOrder, string partNumber, string result, string message);
 
         /// <summary>
-        /// Send rescan data to HMES system
+        /// Send data to HMES Web only (for RescanOnly mode)
         /// </summary>
         /// <param name="pid">Product ID</param>
         /// <returns>True if successful, false otherwise</returns>
-        Task<bool> SendRescanDataAsync(string pid);
+        Task<bool> SendToWebAsync(string pid);
+
+        /// <summary>
+        /// Send data to both HMES Database and Web (for ScanOut_Rescan mode)
+        /// </summary>
+        /// <param name="pid">Product ID</param>
+        /// <param name="workOrder">Work Order</param>
+        /// <param name="partNumber">Part Number</param>
+        /// <param name="result">Scan result (OK/NG)</param>
+        /// <param name="message">Additional message</param>
+        /// <returns>True if successful, false otherwise</returns>
+        Task<bool> SendToDatabaseAndWebAsync(string pid, string workOrder, string partNumber, string result, string message);
 
         /// <summary>
         /// Check HMES system connectivity

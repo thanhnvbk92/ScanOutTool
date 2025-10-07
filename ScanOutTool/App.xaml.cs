@@ -135,6 +135,11 @@ namespace ScanOutTool
             services.AddSingleton<IBlockRFService, BlockRFService>();
             services.AddSingleton<IPLCServiceFactory, PLCServiceFactory>();
             services.AddSingleton<IHMESService, HMESService>(); // ✅ DataExecuter-based HMES service
+            
+            // ✅ NEW: Workflow orchestration services
+            services.AddTransient<SerialDataProcessor>();
+            services.AddTransient<ScannerFeedbackService>();
+            
             services.AddSingleton<IScanWorkflowService, ScanWorkflowService>();
 
             // Infrastructure Services

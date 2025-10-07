@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 namespace ScanOutTool.Services
 {
     /// <summary>
-    /// Implementation of HMES service for sending data to Hyundai Manufacturing Execution System
-    /// Integrates both Database and Web components using DataExecuter
+    /// Implementation of HMES service - provides separate methods for different integration types
+    /// Does NOT contain app state logic - pure business logic only
     /// </summary>
     public class HMESService : IHMESService
     {
@@ -64,7 +64,7 @@ namespace ScanOutTool.Services
             }
         }
 
-        public async Task<bool> SendScanDataAsync(string pid, string workOrder, string partNumber, string result, string message)
+        public async Task<bool> SendToDatabaseAsync(string pid, string workOrder, string partNumber, string result, string message)
         {
             try
             {
@@ -74,93 +74,36 @@ namespace ScanOutTool.Services
                     return false;
                 }
 
-                var config = _configService.Config;
-                _logger.LogInformation("Sending scan data to HMES: PID={PID}, WO={WorkOrder}, PN={PartNumber}, Result={Result}, RunMode={RunMode}", 
-                    pid, workOrder, partNumber, result, config.SelectedRunMode);
-
-                bool success = false;
-
-                switch (config.SelectedRunMode)
+                if (!_configService.Config.EnableHMESDatabase)
                 {
-                    case AppConfig.RunMode.ScanOutOnly:
-                        _logger.LogInformation("RunMode: ScanOutOnly - Sending to Database only");
-                        if (config.EnableHMESDatabase)
-                        {
-                            var dbResult = await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNumber, pid);
-                            success = dbResult.Success;
-                            if (!success)
-                            {
-                                _logger.LogWarning("Database validation failed: {Message}", dbResult.Message);
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogInformation("HMES Database disabled, skipping");
-                            success = true;
-                        }
-                        break;
-
-                    case AppConfig.RunMode.ScanOut_Rescan:
-                        _logger.LogInformation("RunMode: ScanOut_Rescan - Sending to both Database and Web");
-                        
-                        if (config.EnableHMESDatabase && config.EnableHMESWeb)
-                        {
-                            // Use ProcessDataAsync for both Database + Web
-                            var processResult = await _dataExecuter.ProcessDataAsync(workOrder, partNumber, pid);
-                            success = processResult.Success;
-                            if (!success)
-                            {
-                                _logger.LogWarning("Combined Database+Web process failed: {Message}", processResult.Message);
-                            }
-                        }
-                        else if (config.EnableHMESDatabase)
-                        {
-                            // Database only
-                            var dbResult = await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNumber, pid);
-                            success = dbResult.Success;
-                        }
-                        else if (config.EnableHMESWeb)
-                        {
-                            // Web only
-                            var webResult = await _dataExecuter.SendDatatoRescanAsync(pid);
-                            success = webResult.Success;
-                        }
-                        else
-                        {
-                            _logger.LogInformation("Both HMES Database and Web disabled, skipping");
-                            success = true;
-                        }
-                        break;
-
-                    case AppConfig.RunMode.RescanOnly:
-                        _logger.LogInformation("RunMode: RescanOnly - Should use SendRescanDataAsync method");
-                        success = await SendRescanDataAsync(pid);
-                        break;
-
-                    default:
-                        _logger.LogWarning("Unknown RunMode: {RunMode}, defaulting to ScanOut_Rescan", config.SelectedRunMode);
-                        goto case AppConfig.RunMode.ScanOut_Rescan;
+                    _logger.LogInformation("HMES Database disabled, skipping");
+                    return true; // Not an error, just disabled
                 }
 
-                if (success)
+                _logger.LogInformation("Sending data to HMES Database: PID={PID}, WO={WorkOrder}, PN={PartNumber}, Result={Result}", 
+                    pid, workOrder, partNumber, result);
+
+                var dbResult = await _dataExecuter.SendDataScanoutOnlyAsync(workOrder, partNumber, pid);
+
+                if (dbResult.Success)
                 {
-                    _logger.LogInformation("Successfully sent scan data to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
+                    _logger.LogInformation("Successfully sent data to HMES Database: PID={PID}", pid);
                 }
                 else
                 {
-                    _logger.LogWarning("Failed to send scan data to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
+                    _logger.LogWarning("Failed to send data to HMES Database: PID={PID}, Message={Message}", pid, dbResult.Message);
                 }
 
-                return success;
+                return dbResult.Success;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send scan data to HMES for PID: {PID}", pid);
+                _logger.LogError(ex, "Error sending data to HMES Database for PID: {PID}", pid);
                 return false;
             }
         }
 
-        public async Task<bool> SendRescanDataAsync(string pid)
+        public async Task<bool> SendToWebAsync(string pid)
         {
             try
             {
@@ -170,73 +113,88 @@ namespace ScanOutTool.Services
                     return false;
                 }
 
-                var config = _configService.Config;
-                _logger.LogInformation("Sending rescan data to HMES: PID={PID}, RunMode={RunMode}", pid, config.SelectedRunMode);
-
-                bool success = false;
-
-                switch (config.SelectedRunMode)
+                if (!_configService.Config.EnableHMESWeb)
                 {
-                    case AppConfig.RunMode.RescanOnly:
-                        _logger.LogInformation("RunMode: RescanOnly - Sending to Web only");
-                        if (config.EnableHMESWeb)
-                        {
-                            var webResult = await _dataExecuter.SendDatatoRescanAsync(pid);
-                            success = webResult.Success;
-                            if (!success)
-                            {
-                                _logger.LogWarning("Web rescan failed: {Message}", webResult.Message);
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogInformation("HMES Web disabled, skipping");
-                            success = true;
-                        }
-                        break;
-
-                    case AppConfig.RunMode.ScanOut_Rescan:
-                        _logger.LogInformation("RunMode: ScanOut_Rescan - Sending rescan to Web");
-                        if (config.EnableHMESWeb)
-                        {
-                            var webResult = await _dataExecuter.SendDatatoRescanAsync(pid);
-                            success = webResult.Success;
-                        }
-                        else
-                        {
-                            _logger.LogInformation("HMES Web disabled, skipping");
-                            success = true;
-                        }
-                        break;
-
-                    default:
-                        _logger.LogInformation("RunMode {RunMode} - Sending rescan to Web", config.SelectedRunMode);
-                        if (config.EnableHMESWeb)
-                        {
-                            var webResult = await _dataExecuter.SendDatatoRescanAsync(pid);
-                            success = webResult.Success;
-                        }
-                        else
-                        {
-                            success = true;
-                        }
-                        break;
+                    _logger.LogInformation("HMES Web disabled, skipping");
+                    return true; // Not an error, just disabled
                 }
 
-                if (success)
+                _logger.LogInformation("Sending data to HMES Web: PID={PID}", pid);
+
+                var webResult = await _dataExecuter.SendDatatoRescanAsync(pid);
+
+                if (webResult.Success)
                 {
-                    _logger.LogInformation("Successfully sent rescan data to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
+                    _logger.LogInformation("Successfully sent data to HMES Web: PID={PID}", pid);
                 }
                 else
                 {
-                    _logger.LogWarning("Failed to send rescan data to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
+                    _logger.LogWarning("Failed to send data to HMES Web: PID={PID}, Message={Message}", pid, webResult.Message);
                 }
 
-                return success;
+                return webResult.Success;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send rescan data to HMES for PID: {PID}", pid);
+                _logger.LogError(ex, "Error sending data to HMES Web for PID: {PID}", pid);
+                return false;
+            }
+        }
+
+        public async Task<bool> SendToDatabaseAndWebAsync(string pid, string workOrder, string partNumber, string result, string message)
+        {
+            try
+            {
+                if (_dataExecuter == null)
+                {
+                    _logger.LogError("DataExecuter not initialized");
+                    return false;
+                }
+
+                _logger.LogInformation("Sending data to both HMES Database and Web: PID={PID}, WO={WorkOrder}, PN={PartNumber}, Result={Result}", 
+                    pid, workOrder, partNumber, result);
+
+                bool dbSuccess = true;
+                bool webSuccess = true;
+
+                // Send to Database if enabled
+                if (_configService.Config.EnableHMESDatabase && _configService.Config.EnableHMESWeb)
+                {
+                    // Use combined method for efficiency
+                    var processResult = await _dataExecuter.ProcessDataAsync(workOrder, partNumber, pid);
+                    return processResult.Success;
+                }
+                else
+                {
+                    // Send to individual systems
+                    if (_configService.Config.EnableHMESDatabase)
+                    {
+                        dbSuccess = await SendToDatabaseAsync(pid, workOrder, partNumber, result, message);
+                    }
+
+                    if (_configService.Config.EnableHMESWeb)
+                    {
+                        webSuccess = await SendToWebAsync(pid);
+                    }
+
+                    var overallSuccess = dbSuccess && webSuccess;
+                    
+                    if (overallSuccess)
+                    {
+                        _logger.LogInformation("Successfully sent data to all enabled HMES systems: PID={PID}", pid);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Some HMES systems failed: PID={PID}, DB={DbResult}, Web={WebResult}", 
+                            pid, dbSuccess, webSuccess);
+                    }
+
+                    return overallSuccess;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending data to HMES Database and Web for PID: {PID}", pid);
                 return false;
             }
         }
@@ -294,9 +252,6 @@ namespace ScanOutTool.Services
             }
         }
 
-        /// <summary>
-        /// Initialize HMES Web session
-        /// </summary>
         public async Task<bool> InitializeWebSessionAsync()
         {
             try
@@ -334,9 +289,6 @@ namespace ScanOutTool.Services
             }
         }
 
-        /// <summary>
-        /// Get pack quantity from HMES Web
-        /// </summary>
         public async Task<int> GetPackQtyAsync()
         {
             try
@@ -356,9 +308,6 @@ namespace ScanOutTool.Services
             }
         }
 
-        /// <summary>
-        /// Get magazine quantity from HMES Web
-        /// </summary>
         public async Task<int> GetMagazineQtyAsync()
         {
             try
