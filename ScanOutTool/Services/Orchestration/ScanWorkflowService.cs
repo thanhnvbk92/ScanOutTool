@@ -441,6 +441,7 @@ namespace ScanOutTool.Services.Orchestration
                     // ✅ NEW: Send NG feedback for errors if needed
                     if (result.ShouldSendFeedback)
                     {
+                        _logger.LogInformation("Sending NG feedback for processing error");
                         await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.FeedbackResult);
                     }
                     return false;
@@ -455,10 +456,16 @@ namespace ScanOutTool.Services.Orchestration
                 // ✅ UPDATED: Send feedback based on HMES result, not scan result
                 if (result.ShouldSendFeedback)
                 {
-                    await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.FeedbackResult);
+                    // ✅ TIMING: Log feedback timing
+                    _logger.LogInformation("Ready to send feedback: {Feedback} (HMES Success: {HMESSuccess}, Scan Success: {ScanSuccess})", 
+                        result.FeedbackResult ? "OK" : "NG", result.HMESSuccess, result.ScanSuccess);
                     
-                    _logger.LogInformation("Feedback sent: {Feedback} (HMES Success: {HMESSuccess})", 
-                        result.FeedbackResult ? "OK" : "NG", result.HMESSuccess);
+                    var feedbackStartTime = DateTime.Now;
+                    await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.FeedbackResult);
+                    var feedbackDuration = DateTime.Now - feedbackStartTime;
+                    
+                    _logger.LogInformation("Feedback sent in {Duration}ms: {Feedback} -> Scanner", 
+                        feedbackDuration.TotalMilliseconds, result.FeedbackResult ? "OK" : "NG");
                 }
 
                 // Notify ViewModel with result data
@@ -478,6 +485,7 @@ namespace ScanOutTool.Services.Orchestration
                 _logger.LogError(ex, "Error processing serial data: {Data}", sentData);
                 
                 // ✅ NEW: Send NG feedback for exceptions
+                _logger.LogInformation("Sending NG feedback for exception");
                 await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, $"Processing error: {ex.Message}");
                 
                 ErrorOccurred?.Invoke(this, new ErrorOccurredEventArgs

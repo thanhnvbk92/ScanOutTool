@@ -114,13 +114,29 @@ namespace ScanOutTool.Services.Orchestration
 
                 if (scanResult.Value) // Scan OK
                 {
+                    // ? TIMING: Log before HMES operation
+                    _logger.LogInformation("ScanOutOnly: Sending to HMES Database for PID: {PID}", sentData);
+                    var startTime = DateTime.Now;
+                    
                     // Send to HMES Database
                     hmesSuccess = await _hmesService.SendToDatabaseAsync(sentData, workOrder, partNumber, result, message);
+                    
+                    var duration = DateTime.Now - startTime;
+                    _logger.LogInformation("ScanOutOnly: HMES Database completed in {Duration}ms, Success: {Success}", 
+                        duration.TotalMilliseconds, hmesSuccess);
+                    
                     feedbackResult = hmesSuccess; // Feedback based on HMES result
+                    
+                    // ? SAFEGUARD: Small delay to ensure HMES operations are fully complete
+                    if (hmesSuccess)
+                    {
+                        await Task.Delay(50); // 50ms delay for safety
+                    }
                 }
                 else
                 {
                     // Scan NG - no HMES, feedback NG
+                    _logger.LogInformation("ScanOutOnly: Scan NG for PID: {PID}, skipping HMES", sentData);
                     feedbackResult = false;
                 }
 
@@ -150,8 +166,22 @@ namespace ScanOutTool.Services.Orchestration
         {
             try
             {
+                // ? TIMING: Log before HMES operation
+                _logger.LogInformation("RescanOnly: Sending to HMES Web for PID: {PID}", sentData);
+                var startTime = DateTime.Now;
+                
                 // For rescan mode, send directly to HMES Web
                 var hmesSuccess = await _hmesService.SendToWebAsync(sentData);
+                
+                var duration = DateTime.Now - startTime;
+                _logger.LogInformation("RescanOnly: HMES Web completed in {Duration}ms, Success: {Success}", 
+                    duration.TotalMilliseconds, hmesSuccess);
+
+                // ? SAFEGUARD: Small delay to ensure HMES operations are fully complete
+                if (hmesSuccess)
+                {
+                    await Task.Delay(50); // 50ms delay for safety
+                }
 
                 return SerialProcessResult.CreateRescanResult(
                     pid: sentData,
@@ -205,13 +235,29 @@ namespace ScanOutTool.Services.Orchestration
 
                 if (scanResult.Value) // Scan OK
                 {
+                    // ? TIMING: Log before HMES operation
+                    _logger.LogInformation("ScanOut_Rescan: Sending to HMES Database+Web for PID: {PID}", sentData);
+                    var startTime = DateTime.Now;
+                    
                     // Send to both Database and Web
                     hmesSuccess = await _hmesService.SendToDatabaseAndWebAsync(sentData, workOrder, partNumber, result, message);
+                    
+                    var duration = DateTime.Now - startTime;
+                    _logger.LogInformation("ScanOut_Rescan: HMES Database+Web completed in {Duration}ms, Success: {Success}", 
+                        duration.TotalMilliseconds, hmesSuccess);
+                    
                     feedbackResult = hmesSuccess; // ? KEY: Feedback based on both DB + Web result
+                    
+                    // ? SAFEGUARD: Small delay to ensure HMES operations are fully complete
+                    if (hmesSuccess)
+                    {
+                        await Task.Delay(50); // 50ms delay for safety
+                    }
                 }
                 else
                 {
                     // Scan NG - no HMES, feedback NG
+                    _logger.LogInformation("ScanOut_Rescan: Scan NG for PID: {PID}, skipping HMES", sentData);
                     feedbackResult = false;
                 }
 
