@@ -20,6 +20,7 @@ namespace ScanOutTool.Services.Orchestration
         private readonly IConfigService _configService;
         private readonly IPLCServiceFactory _plcFactory;
         private readonly IBlockRFService _blockRFService;
+        private readonly IHMESService _hmesService; // ✅ RESTORED: HMES service dependency
 
         private SerialProxyManager? _serialProxyManager;
         private IPLCService? _plcService;
@@ -41,12 +42,14 @@ namespace ScanOutTool.Services.Orchestration
             ILogger<ScanWorkflowService> logger,
             IConfigService configService,
             IPLCServiceFactory plcFactory,
-            IBlockRFService blockRFService)
+            IBlockRFService blockRFService,
+            IHMESService hmesService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _configService = configService ?? throw new ArgumentNullException(nameof(configService));
             _plcFactory = plcFactory ?? throw new ArgumentNullException(nameof(plcFactory));
             _blockRFService = blockRFService ?? throw new ArgumentNullException(nameof(blockRFService));
+            _hmesService = hmesService ?? throw new ArgumentNullException(nameof(hmesService));
         }
 
         public async Task<WorkflowResult> StartAsync(CancellationToken cancellationToken = default)
@@ -147,6 +150,29 @@ namespace ScanOutTool.Services.Orchestration
                     // ✅ IMPROVED: Reset to stopped state on failure
                     ChangeStatus(WorkflowStatus.Stopped, "Failed to start - ready for retry");
                     throw new InvalidOperationException(error, ex);
+                }
+
+                // ✅ NEW: Initialize HMES Web session if needed
+                try
+                {
+                    _logger.LogInformation("[4/4] Initializing HMES Web Session...");
+                    var hmesService = _hmesService as HMESService;
+                    if (hmesService != null)
+                    {
+                        var hmesSuccess = await hmesService.InitializeWebSessionAsync();
+                        if (hmesSuccess)
+                        {
+                            _logger.LogInformation("[4/4] HMES Web Session: SUCCESS");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[4/4] HMES Web Session: FAILED (continuing anyway)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[4/4] HMES Web Session initialization failed (continuing anyway)");
                 }
 
                 ChangeStatus(WorkflowStatus.Running, "Workflow started successfully");
@@ -398,34 +424,47 @@ namespace ScanOutTool.Services.Orchestration
         {
             try
             {
+                _logger.LogInformation("ProcessSerialDataAsync: Processing data - {Data}", sentData);
+                
                 // Move complex business logic từ ViewModel vào đây
                 if (sentData.Contains("CLEAR") || sentData.Contains("TRACE"))
                 {
+                    _logger.LogInformation("ProcessSerialDataAsync: Special command detected - {Data}", sentData);
                     return true;
                 }
 
                 if (_autoScanOutUI?.IsScanoutUI() != true)
                 {
+                    _logger.LogWarning("ProcessSerialDataAsync: ScanOut UI not available");
                     return true;
                 }
 
-                // Read scan result
-                var scanResult = await ReadScanOutResultAsync(sentData).ConfigureAwait(false);
-                
-                if (scanResult != null)
-                {
-                    // ✅ NEW: Send feedback to scanner based on result
-                    await SendFeedbackToScannerAsync(scanResult.Value).ConfigureAwait(false);
+                // ✅ RESTORED: Get configuration for RunMode and other settings
+                var config = _configService.Config;
+                _logger.LogInformation("ProcessSerialDataAsync: Using RunMode - {RunMode}", config.SelectedRunMode);
 
-                    // Notify ViewModel through event
-                    ScanDataReceived?.Invoke(this, new ScanDataReceivedEventArgs
-                    {
-                        PID = _autoScanOutUI.ReadPID(),
-                        WorkOrder = _autoScanOutUI.ReadWO(),
-                        PartNumber = _autoScanOutUI.ReadEBR(),
-                        Result = _autoScanOutUI.ReadResult(),
-                        Message = _autoScanOutUI.ReadMessage()
-                    });
+                // ✅ RESTORED: RunMode logic
+                switch (config.SelectedRunMode)
+                {
+                    case AppConfig.RunMode.ScanOutOnly:
+                        _logger.LogInformation("ProcessSerialDataAsync: ScanOutOnly mode - processing scan");
+                        await ProcessScanOutOnlyAsync(sentData).ConfigureAwait(false);
+                        break;
+                        
+                    case AppConfig.RunMode.RescanOnly:
+                        _logger.LogInformation("ProcessSerialDataAsync: RescanOnly mode - processing rescan");
+                        await ProcessRescanOnlyAsync(sentData).ConfigureAwait(false);
+                        break;
+                        
+                    case AppConfig.RunMode.ScanOut_Rescan:
+                        _logger.LogInformation("ProcessSerialDataAsync: ScanOut_Rescan mode - processing both");
+                        await ProcessScanOutAndRescanAsync(sentData).ConfigureAwait(false);
+                        break;
+                        
+                    default:
+                        _logger.LogWarning("ProcessSerialDataAsync: Unknown RunMode - {RunMode}", config.SelectedRunMode);
+                        await ProcessScanOutAndRescanAsync(sentData).ConfigureAwait(false); // Default behavior
+                        break;
                 }
 
                 return true;
@@ -444,7 +483,119 @@ namespace ScanOutTool.Services.Orchestration
         }
 
         /// <summary>
-        /// ✅ NEW: Send feedback to scanner port based on scan result
+        /// ✅ RESTORED: Process ScanOut only mode
+        /// </summary>
+        private async Task ProcessScanOutOnlyAsync(string sentData)
+        {
+            try
+            {
+                _logger.LogInformation("ProcessScanOutOnlyAsync: Processing - {Data}", sentData);
+                
+                // Read scan result
+                var scanResult = await ReadScanOutResultAsync(sentData).ConfigureAwait(false);
+                
+                if (scanResult != null)
+                {
+                    // Send feedback to scanner
+                    await SendFeedbackToScannerAsync(scanResult.Value).ConfigureAwait(false);
+
+                    // ✅ RESTORED: Send to HMES if scan is OK
+                    if (scanResult.Value)
+                    {
+                        await SendToHMESAsync(sentData).ConfigureAwait(false);
+                    }
+
+                    // Notify ViewModel through event
+                    ScanDataReceived?.Invoke(this, new ScanDataReceivedEventArgs
+                    {
+                        PID = _autoScanOutUI.ReadPID(),
+                        WorkOrder = _autoScanOutUI.ReadWO(),
+                        PartNumber = _autoScanOutUI.ReadEBR(),
+                        Result = _autoScanOutUI.ReadResult(),
+                        Message = _autoScanOutUI.ReadMessage()
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ProcessScanOutOnlyAsync");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// ✅ RESTORED: Process Rescan only mode
+        /// </summary>
+        private async Task ProcessRescanOnlyAsync(string sentData)
+        {
+            try
+            {
+                _logger.LogInformation("ProcessRescanOnlyAsync: Processing - {Data}", sentData);
+                
+                // For rescan mode, we typically just send to HMES without ScanOut UI processing
+                await SendToHMESAsync(sentData).ConfigureAwait(false);
+                
+                // Send success feedback
+                await SendFeedbackToScannerAsync(true).ConfigureAwait(false);
+
+                // Notify ViewModel with rescan data
+                ScanDataReceived?.Invoke(this, new ScanDataReceivedEventArgs
+                {
+                    PID = sentData,
+                    WorkOrder = "",
+                    PartNumber = "",
+                    Result = "OK",
+                    Message = "Rescan completed"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ProcessRescanOnlyAsync");
+                await SendFeedbackToScannerAsync(false).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// ✅ RESTORED: Process both ScanOut and Rescan mode
+        /// </summary>
+        private async Task ProcessScanOutAndRescanAsync(string sentData)
+        {
+            try
+            {
+                _logger.LogInformation("ProcessScanOutAndRescanAsync: Processing - {Data}", sentData);
+                
+                // Read scan result
+                var scanResult = await ReadScanOutResultAsync(sentData).ConfigureAwait(false);
+                
+                if (scanResult != null)
+                {
+                    // Send feedback to scanner
+                    await SendFeedbackToScannerAsync(scanResult.Value).ConfigureAwait(false);
+
+                    // ✅ RESTORED: Always send to HMES (both OK and NG results)
+                    await SendToHMESAsync(sentData).ConfigureAwait(false);
+
+                    // Notify ViewModel through event
+                    ScanDataReceived?.Invoke(this, new ScanDataReceivedEventArgs
+                    {
+                        PID = _autoScanOutUI.ReadPID(),
+                        WorkOrder = _autoScanOutUI.ReadWO(),
+                        PartNumber = _autoScanOutUI.ReadEBR(),
+                        Result = _autoScanOutUI.ReadResult(),
+                        Message = _autoScanOutUI.ReadMessage()
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ProcessScanOutAndRescanAsync");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// ✅ RESTORED: Send feedback to scanner port based on scan result
         /// </summary>
         private async Task SendFeedbackToScannerAsync(bool isOK)
         {
@@ -478,7 +629,7 @@ namespace ScanOutTool.Services.Orchestration
                 var feedbackData = feedbackMessage + "\r";
 
                 // Send feedback to scanner (device port)
-                await SendToDevicePortAsync(feedbackData).ConfigureAwait(false);
+                await _serialProxyManager.SendToDeviceAsync(feedbackData).ConfigureAwait(false);
 
                 _logger.LogInformation("Sent feedback to scanner: {Feedback} (Result: {Result})", 
                     feedbackMessage, isOK ? "OK" : "NG");
@@ -496,26 +647,83 @@ namespace ScanOutTool.Services.Orchestration
         }
 
         /// <summary>
-        /// ✅ NEW: Send data directly to device port (scanner)
+        /// ✅ FIXED: Send data to HMES system based on RunMode
+        /// - ScanOutOnly: Database only
+        /// - RescanOnly: Web only  
+        /// - ScanOut_Rescan: Both Database + Web
         /// </summary>
-        private async Task SendToDevicePortAsync(string data)
+        private async Task SendToHMESAsync(string pid)
         {
             try
             {
-                if (_serialProxyManager != null)
+                var config = _configService.Config;
+                _logger.LogInformation("SendToHMESAsync: Sending PID to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
+                
+                bool success = false;
+
+                switch (config.SelectedRunMode)
                 {
-                    await _serialProxyManager.SendToDeviceAsync(data).ConfigureAwait(false);
-                    _logger.LogInformation("Successfully sent feedback to device: {Data}", data.Trim());
+                    case AppConfig.RunMode.ScanOutOnly:
+                        _logger.LogInformation("SendToHMESAsync: ScanOutOnly mode - Database only");
+                        if (_autoScanOutUI != null)
+                        {
+                            var workOrder = _autoScanOutUI.ReadWO();
+                            var partNumber = _autoScanOutUI.ReadEBR();
+                            var result = _autoScanOutUI.ReadResult();
+                            var message = _autoScanOutUI.ReadMessage();
+                            
+                            // Send to HMES Database only
+                            success = await _hmesService.SendScanDataAsync(pid, workOrder, partNumber, result, message);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("SendToHMESAsync: AutoScanOutUI not available for ScanOutOnly mode");
+                        }
+                        break;
+
+                    case AppConfig.RunMode.RescanOnly:
+                        _logger.LogInformation("SendToHMESAsync: RescanOnly mode - Web only");
+                        // Send to HMES Web only
+                        success = await _hmesService.SendRescanDataAsync(pid);
+                        break;
+
+                    case AppConfig.RunMode.ScanOut_Rescan:
+                        _logger.LogInformation("SendToHMESAsync: ScanOut_Rescan mode - Both Database and Web");
+                        if (_autoScanOutUI != null)
+                        {
+                            var workOrder = _autoScanOutUI.ReadWO();
+                            var partNumber = _autoScanOutUI.ReadEBR();
+                            var result = _autoScanOutUI.ReadResult();
+                            var message = _autoScanOutUI.ReadMessage();
+                            
+                            // Send to both Database and Web
+                            success = await _hmesService.SendScanDataAsync(pid, workOrder, partNumber, result, message);
+                        }
+                        else
+                        {
+                            // Fallback to rescan only
+                            success = await _hmesService.SendRescanDataAsync(pid);
+                        }
+                        break;
+
+                    default:
+                        _logger.LogWarning("SendToHMESAsync: Unknown RunMode {RunMode}, defaulting to ScanOut_Rescan", config.SelectedRunMode);
+                        goto case AppConfig.RunMode.ScanOut_Rescan;
+                }
+                
+                if (success)
+                {
+                    _logger.LogInformation("SendToHMESAsync: Successfully sent to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
                 }
                 else
                 {
-                    _logger.LogWarning("SerialProxyManager is not available for sending feedback");
+                    _logger.LogWarning("SendToHMESAsync: Failed to send to HMES - PID: {PID}, RunMode: {RunMode}", pid, config.SelectedRunMode);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send data to device port");
-                throw;
+                _logger.LogError(ex, "Failed to send data to HMES for PID: {PID}", pid);
+                // Don't throw - HMES failure shouldn't stop the workflow
             }
         }
 

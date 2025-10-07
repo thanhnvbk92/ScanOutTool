@@ -28,6 +28,7 @@ namespace ScanOutTool.ViewModels
 
         private readonly IScanWorkflowService _scanWorkflowService;
         private readonly ILoggingService _loggingService;
+        private readonly IConfigService _configService; // ✅ RESTORED: Config service dependency
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private bool _disposed;
 
@@ -42,6 +43,7 @@ namespace ScanOutTool.ViewModels
         [ObservableProperty] private string _result = string.Empty;
         [ObservableProperty] private string _resultMessage = string.Empty;
         [ObservableProperty] private string _pCBLocation = string.Empty;
+        [ObservableProperty] private string _selectedEBR = string.Empty; // ✅ RESTORED: Selected EBR property
         [ObservableProperty] private RunMode _selectedRunMode = RunMode.ScanOut_Rescan;
         [ObservableProperty] private List<RunMode> _runModes;
         [ObservableProperty] private string _informationMessage = string.Empty;
@@ -87,10 +89,12 @@ namespace ScanOutTool.ViewModels
 
         public DashboardViewModel(
             IScanWorkflowService scanWorkflowService,
-            ILoggingService loggingService)
+            ILoggingService loggingService,
+            IConfigService configService)
         {
             _scanWorkflowService = scanWorkflowService ?? throw new ArgumentNullException(nameof(scanWorkflowService));
             _loggingService = loggingService ?? throw new ArgumentNullException(nameof(loggingService));
+            _configService = configService ?? throw new ArgumentNullException(nameof(configService));
 
             InitializeViewModel();
             SubscribeToEvents();
@@ -99,7 +103,11 @@ namespace ScanOutTool.ViewModels
         private void InitializeViewModel()
         {
             RunModes = Enum.GetValues<RunMode>().ToList();
-            SelectedRunMode = RunMode.ScanOut_Rescan;
+            
+            // ✅ RESTORED: Load from config
+            SelectedRunMode = (RunMode)(int)_configService.Config.SelectedRunMode;
+            SelectedEBR = _configService.Config.SelectedEBR;
+            
             IsStarted = false;
             StartBtnText = "START";
             
@@ -287,6 +295,38 @@ namespace ScanOutTool.ViewModels
 
                 _loggingService.LogInformation($"Scan data received: PID={e.PID}, WO={e.WorkOrder}, PN={e.PartNumber}, Result={e.Result}");
 
+                // ✅ NEW: Update magazine quantity from HMES if available
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var hmesService = _scanWorkflowService as ScanWorkflowService;
+                        if (hmesService != null)
+                        {
+                            // Get the HMES service via reflection to access GetMagazineQtyAsync
+                            var hmesField = hmesService.GetType().GetField("_hmesService", 
+                                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                            
+                            if (hmesField?.GetValue(hmesService) is HMESService actualHmesService)
+                            {
+                                var qty = await actualHmesService.GetMagazineQtyAsync();
+                                if (qty >= 0)
+                                {
+                                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                                    {
+                                        MagazineQty = qty;
+                                        _loggingService.LogInformation($"Updated magazine quantity: {qty}");
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _loggingService.LogError("Error updating magazine quantity: " + ex.Message);
+                    }
+                });
+
                 // Play appropriate sound
                 if (e.Result == "OK")
                 {
@@ -380,6 +420,24 @@ namespace ScanOutTool.ViewModels
             }
         }
         #endregion
+
+        // ✅ RESTORED: Property change handlers to sync with config
+        partial void OnSelectedRunModeChanged(RunMode value)
+        {
+            _configService.Config.SelectedRunMode = (AppConfig.RunMode)(int)value;
+            _loggingService.LogInformation("DASHBOARD: RunMode changed to " + value.ToString());
+        }
+
+        partial void OnSelectedEBRChanged(string value)
+        {
+            _configService.Config.SelectedEBR = value;
+            _loggingService.LogInformation("DASHBOARD: SelectedEBR changed to " + value);
+        }
+
+        partial void OnIsSessionStartingChanged(bool value)
+        {
+            UpdateButtonState();
+        }
 
         public void Dispose()
         {

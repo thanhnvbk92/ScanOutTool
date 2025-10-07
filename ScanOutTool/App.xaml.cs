@@ -130,7 +130,11 @@ namespace ScanOutTool
                     new LoggingServiceProvider(serviceProvider.GetRequiredService<ILoggingService>()));
             });
 
-            // ✅ NEW: Business Logic Services (Service Layer)
+            // Business Services
+            services.AddSingleton<IConfigService, ConfigService>();
+            services.AddSingleton<IBlockRFService, BlockRFService>();
+            services.AddSingleton<IPLCServiceFactory, PLCServiceFactory>();
+            services.AddSingleton<IHMESService, HMESService>(); // ✅ DataExecuter-based HMES service
             services.AddSingleton<IScanWorkflowService, ScanWorkflowService>();
 
             // Infrastructure Services
