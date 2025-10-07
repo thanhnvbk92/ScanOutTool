@@ -435,63 +435,33 @@ namespace ScanOutTool.Services.Orchestration
         {
             try
             {
-                _logger.LogInformation("ProcessSerialDataAsync: Processing data - {Data}", sentData);
+                // ✅ DELEGATED: Use SerialDataProcessor instead of handling logic here
+                var result = await _serialDataProcessor.ProcessDataAsync(sentData);
                 
-                // Handle special commands first
-                if (sentData.Contains("CLEAR") || sentData.Contains("TRACE"))
+                if (!result.Success)
                 {
-                    _logger.LogInformation("ProcessSerialDataAsync: Special command detected - {Data}", sentData);
+                    _logger.LogError("Serial data processing failed: {Error}", result.ErrorMessage);
+                    return false;
+                }
+
+                if (result.IsSpecialCommand)
+                {
+                    _logger.LogInformation("Special command processed: {Message}", result.Message);
                     return true;
                 }
 
-                if (_autoScanOutUI?.IsScanoutUI() != true)
+                // Send feedback to scanner
+                await _feedbackService.SendFeedbackAsync(_serialProxyManager, result.ScanSuccess);
+
+                // Notify ViewModel with result data
+                ScanDataReceived?.Invoke(this, new ScanDataReceivedEventArgs
                 {
-                    _logger.LogWarning("ProcessSerialDataAsync: ScanOut UI not available");
-                    return true;
-                }
-
-                // ✅ COMPLETELY SIMPLIFIED: No RunMode logic here - just process and let HMES handle routing
-                _logger.LogInformation("ProcessSerialDataAsync: Processing scan data and sending to HMES");
-                
-                // Read scan result from ScanOut UI (if available)
-                var scanResult = await ReadScanOutResultAsync(sentData).ConfigureAwait(false);
-                
-                if (scanResult != null)
-                {
-                    // Send feedback to scanner
-                    await SendFeedbackToScannerAsync(scanResult.Value).ConfigureAwait(false);
-
-                    // Send to HMES - let HMESService handle all RunMode routing logic
-                    await SendToHMESAsync(sentData).ConfigureAwait(false);
-
-                    // Notify ViewModel with scan data
-                    ScanDataReceived?.Invoke(this, new ScanDataReceivedEventArgs
-                    {
-                        PID = _autoScanOutUI.ReadPID(),
-                        WorkOrder = _autoScanOutUI.ReadWO(),
-                        PartNumber = _autoScanOutUI.ReadEBR(),
-                        Result = _autoScanOutUI.ReadResult(),
-                        Message = _autoScanOutUI.ReadMessage()
-                    });
-                }
-                else
-                {
-                    // If no scan result available, still try to send as rescan
-                    await SendToHMESAsync(sentData).ConfigureAwait(false);
-                    
-                    // Send success feedback for rescan
-                    await SendFeedbackToScannerAsync(true).ConfigureAwait(false);
-
-                    // Notify ViewModel with rescan data
-                    ScanDataReceived?.Invoke(this, new ScanDataReceivedEventArgs
-                    {
-                        PID = sentData,
-                        WorkOrder = "",
-                        PartNumber = "",
-                        Result = "OK",
-                        Message = "Rescan completed"
-                    });
-                }
+                    PID = result.PID,
+                    WorkOrder = result.WorkOrder,
+                    PartNumber = result.PartNumber,
+                    Result = result.Result,
+                    Message = result.Message
+                });
 
                 return true;
             }
@@ -652,8 +622,9 @@ namespace ScanOutTool.Services.Orchestration
                     {
                         e.Cancel = true;
                         
-                        // ✅ IMPROVED: Send NG feedback when blocked
-                        await SendFeedbackToScannerAsync(false).ConfigureAwait(false);
+                        // ✅ DELEGATED: Use ScannerFeedbackService for feedback
+                        await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, 
+                            $"PID blocked due to NG RF at jig {rfInfo.MachineIP}");
                         
                         ErrorOccurred?.Invoke(this, new ErrorOccurredEventArgs
                         {
@@ -707,8 +678,8 @@ namespace ScanOutTool.Services.Orchestration
                 e.Cancel = true;
                 _logger.LogInformation("Invalid data length: {Length}", e.Data.Trim().Length);
                 
-                // ✅ IMPROVED: Send NG feedback for invalid data
-                await SendFeedbackToScannerAsync(false).ConfigureAwait(false);
+                // ✅ DELEGATED: Use ScannerFeedbackService for feedback
+                await _feedbackService.SendNGFeedbackAsync(_serialProxyManager, "Invalid data length");
             }
         }
 
