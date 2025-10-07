@@ -490,7 +490,6 @@ namespace ScanOutTool.Services.Orchestration
             }
         }
 
-
         private async Task OnSerialDataForwarding(object sender, SerialDataEventArgs e)
         {
             try
